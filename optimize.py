@@ -30,25 +30,27 @@ def optimize_model(model_name: str, device: str = "cuda"):
         low_cpu_mem_usage=True,
     )
 
+    # torchao Int4WeightOnly with HQQ quantization
     from torchao.quantization import quantize_, Int4WeightOnlyConfig
     config = Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1)
 
-    # Move embed_tokens and lm_head to GPU (not quantized — too small benefit)
+    # Move non-quantizable layers to GPU
     model.model.embed_tokens.to("cuda:0")
     model.model.norm.to("cuda:0")
     model.model.rotary_emb.to("cuda:0")
     model.lm_head.to("cuda:0")
 
     # Stream each transformer layer: CPU → GPU, quantize on GPU, free bf16
-    for i, layer in enumerate(model.model.layers):
-        # Move bf16 layer to GPU
+    for layer in model.model.layers:
         layer.to("cuda:0")
-        # Quantize on GPU (converts bf16 → int4)
         quantize_(layer, config)
         gc.collect()
         torch.cuda.empty_cache()
 
-    # Prompt lookup decoding
-    model.generation_config.prompt_lookup_num_tokens = 60
+    # Model-adaptive prompt lookup: Mistral benefits from higher values
+    if "mistral" in model_name.lower():
+        model.generation_config.prompt_lookup_num_tokens = 128
+    else:
+        model.generation_config.prompt_lookup_num_tokens = 40
 
     return model, tokenizer
