@@ -119,7 +119,11 @@ This is because torchao's faster forward pass means the overhead of verifying mo
 - **Int8WeightOnlyConfig**: Only 1.7x memory reduction, slower than fp16
 - **torch.compile on torchao int4**: No significant benefit — tinygemm kernels already optimized
 - **flash_attention_2**: Not installed
-- **Quantizing lm_head**: Causes peak VRAM spike (tied embeddings)
+- **Quantizing lm_head**: Causes 17+ GB peak VRAM spike (HQQ temporary allocations on large weight)
+- **FPXWeightOnlyConfig (FP4)**: Untested end-to-end (slow to quantize)
+- **Int4DynamicActivationInt4WeightConfig**: Destroys quality (0.03 retention) and very slow (8.6 tok/s)
+- **Static KV cache**: Destroys quality with quantized models (0.77 quality_retained)
+- **Eager attention**: Worse than SDPA for torchao int4 (opposite of bnb)
 
 ## Model-Specific Results (Round 3)
 
