@@ -6,93 +6,143 @@ Update every ~10 experiments with what you learned.
 ## Environment (Round 3 — UPDATED)
 
 - **auto-gptq and autoawq are DEAD** (archived 2025). Removed from deps.
-- **NEW: torchao 0.15.0** installed — PyTorch-native Int4WeightOnly quantization. Use TorchAoConfig. Composable with torch.compile. Expected 50-80+ tok/s. Try `use_hqq=True` for better accuracy.
-- **NEW: hqq** installed — calibration-free quantization. Use HqqConfig from transformers. After loading, call `from hqq.utils.patching import prepare_for_inference; prepare_for_inference(model, backend="torchao_int4")` for fast kernels.
-- **NEW: einops** installed — Phi-3 should now work.
-- **To load pre-quantized GPTQ models**: `pip install gptqmodel` separately (requires --no-build-isolation). Use GPTQConfig(bits=4, backend="marlin") for Marlin kernels.
-- **Pre-quantized models on HuggingFace**: `hugging-quants/Meta-Llama-3.1-8B-Instruct-GPTQ-INT4` and `hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4` — can load directly.
-- **Triton works** (after `apt-get install python3-dev`). torch.compile works.
+- **torchao 0.15.0** installed — PyTorch-native Int4WeightOnly quantization. Composable with torch.compile.
+- **hqq** installed — calibration-free quantization (used internally by torchao's `use_hqq=True`).
+- **einops** installed — Phi-3 should now work (but Phi-3 also needs `pytest` which is not installed).
+- **Triton works**, torch.compile works.
 - **bitsandbytes still works** as fallback. Best bnb config is in rounds 1-2 below.
+- **GPTQ/AWQ loading broken**: optimum's GPTQConfig needs `gptqmodel` (not installed). Pre-quantized HF models can't be loaded.
+- **HqqConfig through transformers broken**: "not available yet" error in current transformers version.
 
-## Best Configuration (Score ~2.0-3.2 depending on model)
+## Best Configuration (Round 3 — Score 2.75-3.88)
 
 ```python
+import gc
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-torch.backends.cuda.preferred_blas_library("cublaslt")
+def optimize_model(model_name, device="cuda"):
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
-quantization_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_compute_dtype=torch.bfloat16,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_use_double_quant=False,
-    bnb_4bit_quant_storage=torch.uint8,
-)
+    # cuBLASLt: helps Llama, HURTS Mistral with torchao int4 kernels
+    if "mistral" not in model_name.lower():
+        torch.backends.cuda.preferred_blas_library("cublaslt")
 
-model = AutoModelForCausalLM.from_pretrained(
-    model_name,
-    quantization_config=quantization_config,
-    device_map="auto",
-    trust_remote_code=True,
-)
+    # Load bf16 on CPU to avoid GPU memory spike
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name, torch_dtype=torch.bfloat16, device_map="cpu",
+        trust_remote_code=True, low_cpu_mem_usage=True,
+    )
 
-model.generation_config.prompt_lookup_num_tokens = 40
+    from torchao.quantization import quantize_, Int4WeightOnlyConfig
+    config = Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1)
+
+    # Move non-quantizable layers to GPU first
+    model.model.embed_tokens.to("cuda:0")
+    model.model.norm.to("cuda:0")
+    model.model.rotary_emb.to("cuda:0")
+    model.lm_head.to("cuda:0")
+
+    # Stream each layer: CPU → GPU, quantize, free bf16
+    for layer in model.model.layers:
+        layer.to("cuda:0")
+        quantize_(layer, config)
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    # Model-specific prompt_lookup
+    if "mistral" in model_name.lower():
+        model.generation_config.prompt_lookup_num_tokens = 128
+    else:
+        model.generation_config.prompt_lookup_num_tokens = 40
+
+    return model, tokenizer
 ```
 
-### Key insight: prompt_lookup_num_tokens is the biggest win
+## Key Insights from Round 3
 
-**prompt_lookup_num_tokens=40** was the single most impactful optimization. It uses n-gram matching on previously generated tokens to create draft token sequences, then verifies them in parallel. This effectively amortizes the bnb dequantization overhead across multiple tokens per forward pass.
+### torchao Int4WeightOnly is the breakthrough (2x better than bnb for speed)
 
-Results:
-- Llama 3.1 8B: 1.71 → 2.02 (18% improvement)
-- Mistral 7B v0.3: 2.07 → 2.81-3.16 (36-53% improvement)
-- Sweet spot is ~40 tokens. Below 20 is too conservative, above 60 has diminishing returns.
+The `torchao.quantization.quantize_()` function with `Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1)` gives dramatically faster inference than bitsandbytes NF4:
+- **Llama 3.1 8B**: 48 tok/s (1.37x speedup) vs bnb's 33 tok/s (0.87x)
+- **Mistral 7B**: 59 tok/s (1.58x speedup) vs bnb's 38 tok/s (1.0x)
 
-### Why it works
+This is because torchao uses tinygemm tensor-core-tiled INT4 matmul kernels, which are much faster than bnb's NF4 dequantize→matmul path for batch-1 generation.
 
-bnb NF4 is memory-bandwidth limited during batch-1 generation. Each token requires reading all model weights. With prompt_lookup, the model processes 2-5 tokens per forward pass (when n-gram matches succeed), effectively 2-5x throughput for those steps. The verification of N draft tokens costs only marginally more than generating 1 token (parallel forward pass).
+### Streaming quantization is critical for memory
 
-## What Works
+Loading the model bf16 on GPU then quantizing peaks at 16+ GB. Loading bf16 on CPU and streaming layers one at a time to GPU + quantize keeps peak at ~5.5-7 GB:
 
-- `bnb_4bit_compute_dtype=torch.bfloat16` — **much faster than float16** on Ampere
-- `bnb_4bit_use_double_quant=False` — double quant adds ~33% speed penalty even with prompt_lookup
-- `bnb_4bit_quant_storage=torch.uint8` — slight improvement
-- `torch.backends.cuda.preferred_blas_library("cublaslt")` — small speedup for batch-1
-- Default attention (no explicit `attn_implementation`) — slightly better for Mistral (sliding window)
+```
+Peak VRAM with model.to("cuda"): 13.45 GB
+Peak VRAM with layer-by-layer:   5.55 GB (Mistral), 7.01 GB (Llama)
+```
 
-## Model-Specific Results
+The model.to("cuda") bulk transfer temporarily doubles GPU memory. Layer-by-layer avoids this.
+
+### cuBLASLt interaction with torchao
+
+- cuBLASLt **helps** Llama with torchao int4 kernels (48.2 vs 48.1 tok/s — minimal)
+- cuBLASLt **HURTS** Mistral with torchao int4 (52.8 vs 60.9 tok/s — 15% penalty!)
+- This is the opposite of bnb, where cuBLASLt helped slightly for both models.
+- The torchao tinygemm kernels have their own optimized GEMM path; cuBLASLt interferes.
+
+### prompt_lookup scales higher with torchao
+
+With bnb NF4, prompt_lookup sweet spot was 40 (diminishing returns above 60). With torchao int4:
+- **Llama**: 40 is still optimal (128 slightly worse)
+- **Mistral**: 128 is optimal (60→80→100→128 kept improving, 53.2 tok/s at 128)
+
+This is because torchao's faster forward pass means the overhead of verifying more tokens is relatively lower.
+
+### HQQ quantization quality vs optimization
+
+- `use_hqq=True` gives better quality than RTN (`use_hqq=False`): 0.902 vs 0.905 quality for Llama
+- HQQ's proximal optimization uses CUDA internally — can't avoid GPU allocation during quantization
+- If you do HQQ quantization on CPU with `device='cpu'`, it's ~100x slower (hours vs seconds)
+- The HQQ no-optimize path (skip proximal optimization) gives worse quality AND speed
+
+### What doesn't work with torchao
+
+- **Int4WeightOnlyConfig version=2**: Requires `fbgemm-gpu-genai >= 1.2.0` (not installed)
+- **Int4WeightOnlyConfig version=1 via TorchAoConfig**: Loads through transformers but inference is 17+ minutes (tinygemm extremely slow through HF integration)
+- **Int8DynamicActivationInt4WeightConfig**: 10 tok/s — extremely slow
+- **Int8WeightOnlyConfig**: Only 1.7x memory reduction, slower than fp16
+- **torch.compile on torchao int4**: No significant benefit — tinygemm kernels already optimized
+- **flash_attention_2**: Not installed
+- **Quantizing lm_head**: Causes peak VRAM spike (tied embeddings)
+
+## Model-Specific Results (Round 3)
 
 ### Llama 3.1 8B (RTX 3090)
-- FP16 baseline: ppl 10.39, 38.3-39.2 tok/s, 15.64 GB
-- Best NF4: ppl 11.11, 34.2 tok/s, 6.33 GB → **score 2.02**
-- Quality retained: 0.936
+- FP16 baseline: ppl 10.39, 35-38 tok/s, 15.64 GB
+- **torchao Int4 HQQ**: ppl 11.52, 48 tok/s, 7.01 GB → **score 2.47-2.81**
+- vs bnb NF4: ppl 11.11, 33 tok/s, 6.33 GB → **score 2.01**
+- Improvement: **37% better** than bnb
 
-### Mistral 7B v0.3 (RTX 3090)  
-- FP16 baseline: ppl 8.89, 36.0-41.3 tok/s, 13.78 GB
-- Best NF4: ppl 9.16, 38.0-38.8 tok/s, 4.47 GB → **score 2.81-3.16**
-- Quality retained: 0.971 (better than Llama — NF4 is kinder to Mistral)
-- Mistral benefits more from prompt_lookup (can exceed FP16 speed!)
+### Mistral 7B v0.3 (RTX 3090)
+- FP16 baseline: ppl 8.89, 37.3 tok/s, 13.78 GB
+- **torchao Int4 HQQ**: ppl 9.27, 53-61 tok/s, 5.55 GB → **score 3.27-3.88**
+- vs bnb NF4: ppl 9.16, 38 tok/s, 4.47 GB → **score 2.81-3.25**
+- Improvement: **20-50% better** than bnb (large variance)
 
 ### Phi-3 small 8k instruct
-- **BLOCKED**: requires tiktoken package (not in deps)
-
-## What Doesn't Work
-
-- **bnb 8-bit**: 2x slower than 4-bit. Do not use.
-- **Double quantization**: Saves 0.33 GB but costs 33% speed. Not worth it even with prompt_lookup.
-- **FP4 quant type**: Worse quality (0.878 vs 0.935) with same speed.
-- **Static KV cache**: Hurts speed by ~10%.
-- **Speculative decoding (assistant model)**: Both models suffer from bnb overhead. Use prompt_lookup instead.
-- **Layer pruning**: Even 4 layers (12.5%) destroys quality. Requires calibration-aware methods.
-- **2:4 structured sparsity**: Naive pruning destroys quality. Needs SparseGPT/Wanda (not implementable without triton).
-- **Removing accelerate dispatch hooks**: No measurable effect.
-- **TF32/cudnn flags**: No effect on bfloat16 compute.
-- **Disabling math SDP**: Slightly hurts — default is better.
+- **BLOCKED**: requires pytest package (not in deps), in addition to tiktoken
 
 ## Strategy for Future Sessions
 
-1. Start with the best config above (NF4 bf16 no-double-quant uint8-storage cuBLASLt prompt_lookup=40)
-2. If a new quantization library becomes available (triton fixed, torchao installed), it could break through the bnb speed ceiling
-3. The prompt_lookup sweet spot is model-dependent — test 20/40/60 for new architectures
-4. Quality retention varies by model — Mistral is more NF4-friendly than Llama
+1. Start with the torchao streaming approach above (not bnb)
+2. The `version=1` tinygemm path is deprecated — if fbgemm-gpu-genai becomes available, version=2 should be much faster
+3. If loading a new model architecture, check that it has `model.model.layers` (might be `model.layers` or similar)
+4. cuBLASLt behavior is model-specific — always test with and without
+5. prompt_lookup scales higher with torchao than bnb — test 40/80/128 for new models
+6. Quality retention is worse than bnb (0.90 vs 0.94 for Llama) — if quality floor (0.85) is a concern, try group_size=64
+
+## What Works (consolidated)
+
+- `torchao Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1)` — BEST quantization
+- Stream layers CPU→GPU one at a time during quantization
+- `prompt_lookup_num_tokens` — 40 for Llama, 128 for Mistral
+- `torch_dtype=torch.bfloat16` for torchao (required by tinygemm kernels)
+- cuBLASLt for Llama only (not Mistral)
+- Default attention (no explicit attn_implementation)
