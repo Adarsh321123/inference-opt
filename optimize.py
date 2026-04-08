@@ -10,6 +10,9 @@ The only requirement: optimize_model() must return a working (model, tokenizer) 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
+# Force cuBLASLt for small batch GEMM — can be faster for batch-1 generation
+torch.backends.cuda.preferred_blas_library("cublaslt")
+
 
 def optimize_model(model_name: str, device: str = "cuda"):
     """
@@ -23,10 +26,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
         (model, tokenizer) — the optimized model ready for inference
     """
     # =================================================================
-    # NF4 with bfloat16 compute, no double quant, static KV cache
-    # bfloat16 might be faster on 3090 Ampere tensor cores
-    # No double quant = less dequantization overhead
-    # Static KV cache = faster generation (pre-allocated)
+    # NF4 bf16 + uint8 quant storage + cuBLASLt for batch-1 speed
     # =================================================================
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
@@ -36,6 +36,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
         bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=False,
+        bnb_4bit_quant_storage=torch.uint8,
     )
 
     model = AutoModelForCausalLM.from_pretrained(
