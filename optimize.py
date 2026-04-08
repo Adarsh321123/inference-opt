@@ -46,4 +46,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
         trust_remote_code=True,
     )
 
+    # Prompt lookup decoding: use n-grams from prompt as draft tokens
+    model.generation_config.prompt_lookup_num_tokens = 3
+
     return model, tokenizer
