@@ -37,7 +37,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
     )
 
     # Compile the model for optimized inference
-    model = torch.compile(model, mode="reduce-overhead")
+    model = torch.compile(model, mode="default")
 
     # Prompt lookup decoding: use n-grams from prompt as draft tokens
     model.generation_config.prompt_lookup_num_tokens = 40
