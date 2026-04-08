@@ -44,7 +44,6 @@ def optimize_model(model_name: str, device: str = "cuda"):
         quantization_config=quantization_config,
         device_map="auto",
         trust_remote_code=True,
-        attn_implementation="sdpa",
     )
 
     return model, tokenizer
