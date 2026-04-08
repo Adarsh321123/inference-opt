@@ -49,6 +49,6 @@ def optimize_model(model_name: str, device: str = "cuda"):
         torch.cuda.empty_cache()
 
     # Prompt lookup decoding
-    model.generation_config.prompt_lookup_num_tokens = 40
+    model.generation_config.prompt_lookup_num_tokens = 60
 
     return model, tokenizer
