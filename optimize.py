@@ -11,18 +11,10 @@ import gc
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# cuBLASLt: helps Llama, hurts Mistral with torchao int4 kernels
-# Set dynamically in optimize_model based on model
-
-
 def optimize_model(model_name: str, device: str = "cuda"):
     """
     Load and optimize a model for efficient inference.
     """
-    # cuBLASLt helps Llama but hurts Mistral
-    if "mistral" not in model_name.lower():
-        torch.backends.cuda.preferred_blas_library("cublaslt")
-
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
     # Load model in bf16 on CPU — avoid GPU memory spike
@@ -51,10 +43,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
         gc.collect()
         torch.cuda.empty_cache()
 
-    # Model-adaptive prompt lookup: Mistral benefits from higher values
-    if "mistral" in model_name.lower():
-        model.generation_config.prompt_lookup_num_tokens = 256
-    else:
-        model.generation_config.prompt_lookup_num_tokens = 40
+    # High prompt_lookup: torchao fast kernels amortize the verification cost
+    model.generation_config.prompt_lookup_num_tokens = 256
 
     return model, tokenizer
