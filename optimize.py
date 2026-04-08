@@ -11,6 +11,8 @@ import gc
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+torch.backends.cudnn.benchmark = True
+
 def optimize_model(model_name: str, device: str = "cuda"):
     """
     Load and optimize a model for efficient inference.
