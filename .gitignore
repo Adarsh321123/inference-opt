@@ -1,9 +1,28 @@
+# Python-generated files
 __pycache__/
-*.pyc
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Agent prompt files (generated per-session)
+CLAUDE.md
+AGENTS.md
+
+# Results and runtime artifacts
 results.tsv
 baseline.json
 run.log
+
+# Model files (don't commit weights)
 *.bin
 *.safetensors
 *.gguf
+
+# Misc
 .env
+dev/

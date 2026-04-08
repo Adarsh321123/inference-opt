@@ -23,17 +23,12 @@ To set up a new experiment run:
    - `evaluate.py` — the evaluation harness (do not modify)
    - `optimize.py` — the file you modify
 
-2. **Check environment**: Ensure dependencies are installed. If not, install them:
-   ```
-   pip install transformers torch accelerate numpy datasets
-   pip install bitsandbytes hqq
-   pip install auto-gptq autoawq
-   ```
-   Optional (for validation runs): `pip install lm-eval` (for tinyBenchmarks)
+2. **Install dependencies**: Run `uv sync` to install all packages from `pyproject.toml`.
+   If `uv` is not installed: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 3. **Check GPU**: Run `nvidia-smi` to confirm GPU availability and VRAM.
 
-4. **Run baseline**: Execute `python evaluate.py --baseline` to establish the FP16 baseline
+4. **Run baseline**: Execute `uv run evaluate.py --baseline` to establish the FP16 baseline
    for the current model. This measures unoptimized quality, speed, and memory. The baseline
    numbers are written to `baseline.json` and used to compute the efficiency score.
 
@@ -162,7 +157,7 @@ LOOP FOREVER (for each model):
    Prioritize: Transferable Techniques > Hypotheses to Test > Novel ideas.
 3. **Modify optimize.py** with your experimental approach.
 4. **git commit** — preserve the state.
-5. **Run**: `python evaluate.py > run.log 2>&1`
+5. **Run**: `uv run evaluate.py > run.log 2>&1`
 6. **Read results**: `grep "^efficiency_score:\|^quality_retained:\|^speedup:\|^memory_reduction:" run.log`
 7. **Handle failures**:
    - If grep is empty: the run crashed. `tail -n 50 run.log` to read the error.
