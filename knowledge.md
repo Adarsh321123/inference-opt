@@ -1,98 +1,38 @@
 # knowledge
 
-Accumulated insights from optimization experiments. Read this before every session.
-Update every ~10 experiments with what you learned.
+Accumulated insights from 125+ experiments across 3 rounds. Read this before every session.
 
-## Environment (Round 3 — UPDATED)
+## Rounds 1-3 Summary
 
-- **auto-gptq and autoawq are DEAD** (archived 2025). Removed from deps.
-- **NEW: torchao 0.15.0** installed — PyTorch-native Int4WeightOnly quantization. Use TorchAoConfig. Composable with torch.compile. Expected 50-80+ tok/s. Try `use_hqq=True` for better accuracy.
-- **NEW: hqq** installed — calibration-free quantization. Use HqqConfig from transformers. After loading, call `from hqq.utils.patching import prepare_for_inference; prepare_for_inference(model, backend="torchao_int4")` for fast kernels.
-- **NEW: einops** installed — Phi-3 should now work.
-- **To load pre-quantized GPTQ models**: `pip install gptqmodel` separately (requires --no-build-isolation). Use GPTQConfig(bits=4, backend="marlin") for Marlin kernels.
-- **Pre-quantized models on HuggingFace**: `hugging-quants/Meta-Llama-3.1-8B-Instruct-GPTQ-INT4` and `hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4` — can load directly.
-- **Triton works** (after `apt-get install python3-dev`). torch.compile works.
-- **bitsandbytes still works** as fallback. Best bnb config is in rounds 1-2 below.
+Best scores achieved with library-level optimization (API calls only):
+- Llama 3.1 8B: score 2.7 (torchao Int4 HQQ + prompt_lookup=64)
+- Mistral 7B: score 3.9 (torchao Int4 HQQ + prompt_lookup=256, no cuBLASLt)
 
-## Best Configuration (Score ~2.0-3.2 depending on model)
+These represent the ceiling of configuring existing libraries. Round 4 shifts to from-scratch quantization math to break through this ceiling.
 
-```python
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+## Key Findings (transferable)
 
-torch.backends.cuda.preferred_blas_library("cublaslt")
+- torchao Int4WeightOnly with use_hqq=True is the best quantization backend (faster than bnb NF4)
+- prompt_lookup_num_tokens is the single biggest inference speedup (amortizes dequant overhead)
+- cuBLASLt is model-dependent: helps Llama, hurts Mistral by 15%
+- Streaming CPU→GPU quantization keeps peak VRAM low
+- bfloat16 compute dtype is required for torchao tinygemm kernels
+- Mistral retains quality better under 4-bit than Llama (0.97 vs 0.90)
+- Quality retention at 4-bit varies 85-97% across methods — the MATH of quantization matters
 
-quantization_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_compute_dtype=torch.bfloat16,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_use_double_quant=False,
-    bnb_4bit_quant_storage=torch.uint8,
-)
+## Round 4: From-Scratch Quantization
 
-model = AutoModelForCausalLM.from_pretrained(
-    model_name,
-    quantization_config=quantization_config,
-    device_map="auto",
-    trust_remote_code=True,
-)
+optimize.py now contains a full quantization pipeline:
+1. Load model bf16
+2. Collect calibration data and activation statistics
+3. Apply custom weight transformations (YOUR CREATIVE SPACE)
+4. Quantize with torchao int4 kernels
 
-model.generation_config.prompt_lookup_num_tokens = 40
-```
+The `transform_weights_for_quantization()` function is where breakthroughs happen.
+The goal: discover a transformation that produces better quality at 4-bit than any existing method.
 
-### Key insight: prompt_lookup_num_tokens is the biggest win
-
-**prompt_lookup_num_tokens=40** was the single most impactful optimization. It uses n-gram matching on previously generated tokens to create draft token sequences, then verifies them in parallel. This effectively amortizes the bnb dequantization overhead across multiple tokens per forward pass.
-
-Results:
-- Llama 3.1 8B: 1.71 → 2.02 (18% improvement)
-- Mistral 7B v0.3: 2.07 → 2.81-3.16 (36-53% improvement)
-- Sweet spot is ~40 tokens. Below 20 is too conservative, above 60 has diminishing returns.
-
-### Why it works
-
-bnb NF4 is memory-bandwidth limited during batch-1 generation. Each token requires reading all model weights. With prompt_lookup, the model processes 2-5 tokens per forward pass (when n-gram matches succeed), effectively 2-5x throughput for those steps. The verification of N draft tokens costs only marginally more than generating 1 token (parallel forward pass).
-
-## What Works
-
-- `bnb_4bit_compute_dtype=torch.bfloat16` — **much faster than float16** on Ampere
-- `bnb_4bit_use_double_quant=False` — double quant adds ~33% speed penalty even with prompt_lookup
-- `bnb_4bit_quant_storage=torch.uint8` — slight improvement
-- `torch.backends.cuda.preferred_blas_library("cublaslt")` — small speedup for batch-1
-- Default attention (no explicit `attn_implementation`) — slightly better for Mistral (sliding window)
-
-## Model-Specific Results
-
-### Llama 3.1 8B (RTX 3090)
-- FP16 baseline: ppl 10.39, 38.3-39.2 tok/s, 15.64 GB
-- Best NF4: ppl 11.11, 34.2 tok/s, 6.33 GB → **score 2.02**
-- Quality retained: 0.936
-
-### Mistral 7B v0.3 (RTX 3090)  
-- FP16 baseline: ppl 8.89, 36.0-41.3 tok/s, 13.78 GB
-- Best NF4: ppl 9.16, 38.0-38.8 tok/s, 4.47 GB → **score 2.81-3.16**
-- Quality retained: 0.971 (better than Llama — NF4 is kinder to Mistral)
-- Mistral benefits more from prompt_lookup (can exceed FP16 speed!)
-
-### Phi-3 small 8k instruct
-- **BLOCKED**: requires tiktoken package (not in deps)
-
-## What Doesn't Work
-
-- **bnb 8-bit**: 2x slower than 4-bit. Do not use.
-- **Double quantization**: Saves 0.33 GB but costs 33% speed. Not worth it even with prompt_lookup.
-- **FP4 quant type**: Worse quality (0.878 vs 0.935) with same speed.
-- **Static KV cache**: Hurts speed by ~10%.
-- **Speculative decoding (assistant model)**: Both models suffer from bnb overhead. Use prompt_lookup instead.
-- **Layer pruning**: Even 4 layers (12.5%) destroys quality. Requires calibration-aware methods.
-- **2:4 structured sparsity**: Naive pruning destroys quality. Needs SparseGPT/Wanda (not implementable without triton).
-- **Removing accelerate dispatch hooks**: No measurable effect.
-- **TF32/cudnn flags**: No effect on bfloat16 compute.
-- **Disabling math SDP**: Slightly hurts — default is better.
-
-## Strategy for Future Sessions
-
-1. Start with the best config above (NF4 bf16 no-double-quant uint8-storage cuBLASLt prompt_lookup=40)
-2. If a new quantization library becomes available (triton fixed, torchao installed), it could break through the bnb speed ceiling
-3. The prompt_lookup sweet spot is model-dependent — test 20/40/60 for new architectures
-4. Quality retention varies by model — Mistral is more NF4-friendly than Llama
+Known techniques to try and beat:
+- AWQ: scales important channels by activation magnitude (alpha=0.5 weighting)
+- GPTQ: uses Hessian to find optimal rounding direction per weight
+- QuIP#: Hadamard rotation makes weight distribution more uniform
+- SqueezeLLM: separates outlier weights into sparse matrix
