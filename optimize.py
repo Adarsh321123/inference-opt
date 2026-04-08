@@ -8,16 +8,21 @@ The only requirement: optimize_model() must return a working (model, tokenizer) 
 """
 
 import torch
+import torch._inductor.config
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 # Force cuBLASLt for small batch GEMM — can be faster for batch-1 generation
 torch.backends.cuda.preferred_blas_library("cublaslt")
 
+# Inductor optimizations
+torch._inductor.config.coordinate_descent_tuning = True
+torch._inductor.config.triton.unique_kernel_names = True
+
 
 def optimize_model(model_name: str, device: str = "cuda"):
     """
     Load and optimize a model for efficient inference.
-    NF4 quantization + torch.compile for kernel fusion speedup.
+    NF4 quantization + torch.compile with inductor tuning.
     """
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
@@ -34,9 +39,10 @@ def optimize_model(model_name: str, device: str = "cuda"):
         quantization_config=quantization_config,
         device_map="auto",
         trust_remote_code=True,
+        attn_implementation="eager",
     )
 
-    # Compile for optimized inference
+    # Compile with inductor tuning
     model = torch.compile(model, mode="default")
 
     # Prompt lookup decoding: use n-grams from prompt as draft tokens
