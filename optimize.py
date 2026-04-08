@@ -162,14 +162,13 @@ def _compute_awq_scales(linears, act_stat, alpha=0.5):
         w_max = torch.max(w_max, lin.weight.data.float().abs().max(dim=0).values)
     w_max.clamp_(min=1e-8)
 
-    # AWQ formula: s = (a_scale^alpha / w_max^(1-alpha))
-    # Channels with large activation get large s → weight *= s protects them
-    s = (a_scale.pow(alpha) / w_max.pow(1 - alpha))
-    # Normalize so geometric mean is 1 (no net scaling)
-    s = s / s.pow(1.0 / len(s)).prod().clamp(min=1e-8)
-    # Actually, simpler: normalize by median
-    s = s / s.median().clamp(min=1e-8)
-    s.clamp_(min=0.01, max=100.0)
+    # AWQ formula: importance-weighted channel scaling
+    # s > 1 for important channels → scaled up in weight → less quant error
+    s = a_scale.pow(alpha) * w_max.pow(1 - alpha)
+    # Normalize by mean so average scale is ~1
+    s = s / s.mean().clamp(min=1e-8)
+    # Conservative clamping to avoid extreme values
+    s.clamp_(min=0.5, max=2.0)
     return s
 
 
@@ -195,9 +194,7 @@ def transform_weights_for_quantization(model, act_stats):
             dtype = layer.input_layernorm.weight.dtype
             dev = layer.input_layernorm.weight.device
             s_dev = s.to(device=dev, dtype=dtype)
-            # Absorb 1/s into layernorm weight (so layernorm output is divided by s)
             layer.input_layernorm.weight.data.div_(s_dev)
-            # Multiply weight columns by s (compensates the 1/s in input)
             for lin in qkv:
                 lin.weight.data.mul_(s_dev.unsqueeze(0).to(dtype=lin.weight.dtype))
 
@@ -214,17 +211,6 @@ def transform_weights_for_quantization(model, act_stats):
             layer.post_attention_layernorm.weight.data.div_(s_dev)
             for lin in gate_up:
                 lin.weight.data.mul_(s_dev.unsqueeze(0).to(dtype=lin.weight.dtype))
-
-        # --- Outlier clipping for o_proj and down_proj ---
-        # These don't have easy LayerNorm compensation, so just clip outliers
-        for lin in [attn.o_proj, mlp.down_proj]:
-            w = lin.weight.data.float()
-            # Clip per output-channel to reduce quantization range
-            ch_mean = w.mean(dim=1, keepdim=True)
-            ch_std = w.std(dim=1, keepdim=True).clamp(min=1e-8)
-            clip_val = 3.5
-            w_clipped = w.clamp(ch_mean - clip_val * ch_std, ch_mean + clip_val * ch_std)
-            lin.weight.data.copy_(w_clipped.to(lin.weight.dtype))
 
 
 # ============================================================
@@ -261,7 +247,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
     # --- Quantize with torchao int4 ---
     print("Quantizing...")
     from torchao.quantization import quantize_, Int4WeightOnlyConfig
-    quant_config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=False, version=1)
+    quant_config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1)
 
     model.model.embed_tokens.to(device)
     model.model.norm.to(device)
