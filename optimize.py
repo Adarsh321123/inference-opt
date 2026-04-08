@@ -10,8 +10,8 @@ The only requirement: optimize_model() must return a working (model, tokenizer) 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-# cuBLASLt for batch-1 (helps Llama, neutral for Mistral)
-# torch.backends.cuda.preferred_blas_library("cublaslt")
+# NOTE: cuBLASLt helps Llama but hurts Mistral (~10% slower).
+# Set conditionally in optimize_model() below.
 
 
 def optimize_model(model_name: str, device: str = "cuda"):
@@ -29,9 +29,13 @@ def optimize_model(model_name: str, device: str = "cuda"):
         bnb_4bit_quant_storage=torch.uint8,
     )
 
-    # Eager attention is faster for Llama batch-1, default for Mistral (sliding window)
+    # Model-specific tuning
     is_llama = "llama" in model_name.lower()
     attn_kwargs = {"attn_implementation": "eager"} if is_llama else {}
+
+    # cuBLASLt helps Llama but hurts Mistral by ~10%
+    if is_llama:
+        torch.backends.cuda.preferred_blas_library("cublaslt")
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
