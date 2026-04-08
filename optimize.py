@@ -1,13 +1,7 @@
 """
-LLM Inference Optimization — HQQ Int4 + torch.compile
-======================================================
+LLM Inference Optimization — HQQ Int4 Pipeline
+================================================
 THIS IS THE FILE THE AGENT MODIFIES. Everything is fair game.
-
-Pipeline:
-1. Load model bf16 on CPU
-2. Stream layers CPU→GPU, quantize with torchao int4 HQQ
-3. torch.compile for kernel fusion speedup
-4. Return optimized model
 """
 
 import gc
@@ -32,10 +26,16 @@ def optimize_model(model_name: str, device: str = "cuda"):
         low_cpu_mem_usage=True,
     )
 
-    # Quantize with torchao int4 HQQ
+    # Quantize with torchao int4 HQQ + asymmetric zero point
     print("Quantizing...")
     from torchao.quantization import quantize_, Int4WeightOnlyConfig
-    config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1)
+    from torchao.quantization.quant_primitives import ZeroPointDomain
+    config = Int4WeightOnlyConfig(
+        group_size=GROUP_SIZE,
+        use_hqq=True,
+        version=1,
+        zero_point_domain=ZeroPointDomain.FLOAT,
+    )
 
     model.model.embed_tokens.to(device)
     model.model.norm.to(device)
@@ -47,9 +47,6 @@ def optimize_model(model_name: str, device: str = "cuda"):
         quantize_(layer, config)
         gc.collect()
         torch.cuda.empty_cache()
-
-    # torch.compile for kernel fusion
-    model = torch.compile(model, mode="reduce-overhead")
 
     # Prompt lookup for speculative decoding
     is_llama = "llama" in model_name.lower()
