@@ -31,8 +31,12 @@ optimize.py now contains a full quantization pipeline:
 The `transform_weights_for_quantization()` function is where breakthroughs happen.
 The goal: discover a transformation that produces better quality at 4-bit than any existing method.
 
+IMPORTANT: The default baseline uses `use_hqq=True`, which is already a good quantizer (not naive RTN). Try `use_hqq=False` early — transformations will show a bigger effect against the weaker RTN baseline. Then test if the best transformation also helps on top of HQQ.
+
 Known techniques to try and beat:
 - AWQ: scales important channels by activation magnitude (alpha=0.5 weighting)
 - GPTQ: uses Hessian to find optimal rounding direction per weight
 - QuIP#: Hadamard rotation makes weight distribution more uniform
 - SqueezeLLM: separates outlier weights into sparse matrix
+
+For cross-layer compensation (needed for AWQ-style scaling): if you scale layer i's input weights by s, you must divide layer i-1's output weights by s. The function has access to prev_layer and next_layer for this.
