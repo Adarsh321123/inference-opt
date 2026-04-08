@@ -7,9 +7,9 @@ The agent rewrites this file to try different optimization approaches.
 The only requirement: optimize_model() must return a working (model, tokenizer) pair.
 """
 
+import gc
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, TorchAoConfig
-from torchao.quantization import Int4WeightOnlyConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # Force cuBLASLt for small batch GEMM
 torch.backends.cuda.preferred_blas_library("cublaslt")
@@ -21,20 +21,34 @@ def optimize_model(model_name: str, device: str = "cuda"):
     """
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
-    # torchao Int4WeightOnly with HQQ quantization + TensorCoreTiled layout
-    # version=1 uses tinygemm kernels, use_hqq=True for better quantization
-    ao_config = Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1)
-    quantization_config = TorchAoConfig(ao_config)
-
+    # Load model in bf16 on CPU — avoid GPU memory spike
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        quantization_config=quantization_config,
-        device_map="auto",
-        torch_dtype=torch.float16,
+        torch_dtype=torch.bfloat16,
+        device_map="cpu",
         trust_remote_code=True,
+        low_cpu_mem_usage=True,
     )
 
-    # Prompt lookup decoding: biggest single win from prior rounds
+    from torchao.quantization import quantize_, Int4WeightOnlyConfig
+    config = Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1)
+
+    # Move embed_tokens and lm_head to GPU (not quantized — too small benefit)
+    model.model.embed_tokens.to("cuda:0")
+    model.model.norm.to("cuda:0")
+    model.model.rotary_emb.to("cuda:0")
+    model.lm_head.to("cuda:0")
+
+    # Stream each transformer layer: CPU → GPU, quantize on GPU, free bf16
+    for i, layer in enumerate(model.model.layers):
+        # Move bf16 layer to GPU
+        layer.to("cuda:0")
+        # Quantize on GPU (converts bf16 → int4)
+        quantize_(layer, config)
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    # Prompt lookup decoding
     model.generation_config.prompt_lookup_num_tokens = 40
 
     return model, tokenizer
