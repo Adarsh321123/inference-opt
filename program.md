@@ -52,7 +52,7 @@ Higher is better. A baseline FP16 model scores 1.0. A good 4-bit quantization mi
 **The first run**: Your very first run should always be to establish the baseline with the default optimize.py, so you will run it as is.
 
 **Model sequence**: Optimize models in this order:
-1. `meta-llama/Meta-Llama-3-8B`
+1. `meta-llama/Meta-Llama-3.1-8B`
 2. `mistralai/Mistral-7B-v0.3`
 3. `microsoft/Phi-3-small-8k-instruct`
 

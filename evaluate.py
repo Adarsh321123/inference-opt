@@ -3,8 +3,8 @@ Evaluation Harness for LLM Inference Optimization
 DO NOT MODIFY THIS FILE — it is the ground truth metric.
 
 Usage:
-    python evaluate.py --baseline --model meta-llama/Meta-Llama-3-8B   # run FP16 baseline
-    python evaluate.py --model meta-llama/Meta-Llama-3-8B              # evaluate optimized model
+    python evaluate.py --baseline --model meta-llama/Meta-Llama-3.1-8B   # run FP16 baseline
+    python evaluate.py --model meta-llama/Meta-Llama-3.1-8B              # evaluate optimized model
 """
 
 import argparse
@@ -236,7 +236,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model",
         type=str,
-        default="meta-llama/Meta-Llama-3-8B",
+        default="meta-llama/Meta-Llama-3.1-8B",
         help="HuggingFace model name",
     )
     args = parser.parse_args()

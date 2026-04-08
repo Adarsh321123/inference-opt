@@ -25,10 +25,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
 # 3. Run FP16 baseline for a model (~5 min)
-uv run evaluate.py --baseline --model meta-llama/Meta-Llama-3-8B
+uv run evaluate.py --baseline --model meta-llama/Meta-Llama-3.1-8B
 
 # 4. Run the default optimization to verify setup works
-uv run evaluate.py --model meta-llama/Meta-Llama-3-8B
+uv run evaluate.py --model meta-llama/Meta-Llama-3.1-8B
 ```
 
 If the above commands all work ok, your setup is working and you can go into autonomous research mode.
