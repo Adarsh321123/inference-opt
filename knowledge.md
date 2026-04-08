@@ -44,7 +44,7 @@ model.generation_config.prompt_lookup_num_tokens = 40
 
 ### Key insights (ranked)
 
-1. **prompt_lookup=40** — biggest single win, amortizes dequant cost
+1. **prompt_lookup** — biggest win. 40 for Llama, 50 for Mistral (without cuBLASLt)
 2. **cuBLASLt is model-dependent**: +5.6% Llama, **-15% Mistral** (biggest round 2 finding)
 3. **eager attention** > SDPA for Llama batch-1. Neutral for Mistral.
 4. **torch.compile** saves 0.35 GB on Llama, no effect on Mistral
@@ -56,10 +56,10 @@ model.generation_config.prompt_lookup_num_tokens = 40
 - Config: cuBLASLt + eager + compile + prompt_lookup=40
 - 33-35 tok/s, 5.98 GB, quality 0.936
 
-### Mistral 7B v0.3: score 3.0-3.3 (median 3.25)
-- Config: NO cuBLASLt, no compile, prompt_lookup=40
-- 37-40 tok/s, 4.47 GB, quality 0.971
-- NF4 exceeds FP16 speed!
+### Mistral 7B v0.3: score 3.0-3.4 (median 3.30)
+- Config: NO cuBLASLt, no compile, prompt_lookup=50
+- 37-41 tok/s, 4.47 GB, quality 0.971
+- NF4 exceeds FP16 speed! prompt_lookup=50 better than 40 for Mistral.
 
 ### Phi-3: BLOCKED
 
