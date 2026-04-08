@@ -51,10 +51,10 @@ def optimize_model(model_name, device="cuda"):
         torch.cuda.empty_cache()
 
     # Model-specific prompt_lookup — Mistral benefits from much higher values
-    if "mistral" in model_name.lower():
-        model.generation_config.prompt_lookup_num_tokens = 256
+    if "llama" in model_name.lower():
+        model.generation_config.prompt_lookup_num_tokens = 64
     else:
-        model.generation_config.prompt_lookup_num_tokens = 40
+        model.generation_config.prompt_lookup_num_tokens = 256
 
     return model, tokenizer
 ```
@@ -90,7 +90,7 @@ The model.to("cuda") bulk transfer temporarily doubles GPU memory. Layer-by-laye
 ### prompt_lookup scales MUCH higher with torchao
 
 With bnb NF4, prompt_lookup sweet spot was 40 (diminishing returns above 60). With torchao int4:
-- **Llama**: 40 is still optimal (higher values slightly worse)
+- **Llama**: 64 is optimal (40→48→64→128→256: 64 gives best tok/s at ~49)
 - **Mistral**: 256 is optimal (60→100→128→200→256 kept improving, up to 61.8 tok/s at 256; 512 was too high)
 
 This is because torchao's faster forward pass means the overhead of verifying more tokens is relatively lower. Mistral benefits more than Llama from this effect.
@@ -155,7 +155,7 @@ This is because torchao's faster forward pass means the overhead of verifying mo
 
 - `torchao Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1)` — BEST quantization
 - Stream layers CPU→GPU one at a time during quantization
-- `prompt_lookup_num_tokens` — 40 for Llama, 256 for Mistral
+- `prompt_lookup_num_tokens` — 64 for Llama, 256 for Mistral
 - `torch_dtype=torch.bfloat16` for torchao (required by tinygemm kernels)
 - cuBLASLt for Llama only (not Mistral)
 - Default attention (no explicit attn_implementation)
