@@ -50,6 +50,6 @@ def optimize_model(model_name: str, device: str = "cuda"):
         model = torch.compile(model, mode="default")
 
     # Prompt lookup decoding: use n-grams from prompt as draft tokens
-    model.generation_config.prompt_lookup_num_tokens = 50
+    model.generation_config.prompt_lookup_num_tokens = 60
 
     return model, tokenizer
