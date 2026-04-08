@@ -1,0 +1,21 @@
+Encountered exception while importing tiktoken: No module named 'tiktoken'
+=== FP16 BASELINE: microsoft/Phi-3-small-8k-instruct ===
+Loading tokenizer...
+Traceback (most recent call last):
+  File "/workspace/inference-opt/evaluate.py", line 245, in <module>
+    run_baseline(args.model)
+  File "/workspace/inference-opt/evaluate.py", line 124, in run_baseline
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/models/auto/tokenization_auto.py", line 685, in from_pretrained
+    config = AutoConfig.from_pretrained(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/models/auto/configuration_auto.py", line 1500, in from_pretrained
+    config_class = get_class_from_dynamic_module(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/dynamic_module_utils.py", line 572, in get_class_from_dynamic_module
+    final_module = get_cached_module_file(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/dynamic_module_utils.py", line 450, in get_cached_module_file
+    get_cached_module_file(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/dynamic_module_utils.py", line 410, in get_cached_module_file
+    modules_needed = check_imports(resolved_module_file)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/dynamic_module_utils.py", line 258, in check_imports
+    raise ImportError(
+ImportError: This modeling file requires the following packages that were not found in your environment: tiktoken. Run `pip install tiktoken`
