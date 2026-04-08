@@ -11,14 +11,18 @@ import gc
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# Force cuBLASLt for small batch GEMM
-torch.backends.cuda.preferred_blas_library("cublaslt")
+# cuBLASLt: helps Llama, hurts Mistral with torchao int4 kernels
+# Set dynamically in optimize_model based on model
 
 
 def optimize_model(model_name: str, device: str = "cuda"):
     """
     Load and optimize a model for efficient inference.
     """
+    # cuBLASLt helps Llama but hurts Mistral
+    if "mistral" not in model_name.lower():
+        torch.backends.cuda.preferred_blas_library("cublaslt")
+
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
     # Load model in bf16 on CPU — avoid GPU memory spike
