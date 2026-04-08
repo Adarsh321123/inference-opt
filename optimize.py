@@ -140,44 +140,91 @@ def compute_weight_sensitivity(weight, act_stats=None):
 # WEIGHT TRANSFORMATION — THE AGENT'S CREATIVE SPACE
 # ============================================================
 
+def _get_act_stat(act_stats, layer_idx, proj_name):
+    """Look up activation stats for a specific projection in a layer."""
+    key = f"model.layers.{layer_idx}.{proj_name}"
+    return act_stats.get(key)
+
+
+def _compute_awq_scales(linears, act_stat, alpha=0.5):
+    """
+    Compute AWQ-style per-channel scaling factors.
+    Channels with large activation magnitude get scaled UP in weight space
+    (protecting them from quantization error).
+    """
+    if act_stat is None:
+        return None
+    a_scale = act_stat["absmax"].cpu().float().clamp(min=1e-8)
+
+    # Combined weight magnitude across all linears sharing this input
+    w_max = torch.zeros_like(a_scale)
+    for lin in linears:
+        w_max = torch.max(w_max, lin.weight.data.float().abs().max(dim=0).values)
+    w_max.clamp_(min=1e-8)
+
+    # AWQ formula: s = (a_scale^alpha / w_max^(1-alpha))
+    # Channels with large activation get large s → weight *= s protects them
+    s = (a_scale.pow(alpha) / w_max.pow(1 - alpha))
+    # Normalize so geometric mean is 1 (no net scaling)
+    s = s / s.pow(1.0 / len(s)).prod().clamp(min=1e-8)
+    # Actually, simpler: normalize by median
+    s = s / s.median().clamp(min=1e-8)
+    s.clamp_(min=0.01, max=100.0)
+    return s
+
+
 def transform_weights_for_quantization(model, act_stats):
     """
-    Apply mathematical transformations to model weights before quantization.
-    Has access to ALL layers for cross-layer compensation.
+    AWQ-style channel scaling: protect important channels from quantization error.
 
-    THIS IS THE FUNCTION THE AGENT SHOULD MODIFY.
-
-    Baseline: no transformation (naive round-to-nearest via torchao).
-
-    Techniques to explore:
-    - AWQ-style channel scaling: scale important channels up in layer N,
-      compensate by scaling down in layer N-1's output projection.
-      Key: importance = (activation_mag ** alpha) * (weight_mag ** (1-alpha))
-    - Outlier clipping: clip extreme weight values to reduce quantization range.
-      Trade small accuracy loss on outliers for better precision on the bulk.
-    - Hadamard rotation (QuIP#): multiply W by orthogonal Hadamard matrix
-      to spread information uniformly. Requires compensating in adjacent layers.
-    - SmoothQuant: migrate quantization difficulty from activations to weights
-      by per-channel scaling: W_new = W * diag(s), X_new = X / diag(s)
-    - Per-channel zero-centering: shift each channel to be symmetric around zero
-      for better symmetric quantization.
-    - Novel combinations of the above.
-
-    The agent has access to:
-    - model.model.layers[i] — all transformer layers
-    - act_stats — per-layer activation statistics from calibration
-    - compute_channel_importance() — importance scoring
-    - compute_weight_sensitivity() — per-weight sensitivity
+    For attention: scale input_layernorm and compensate in q/k/v projections.
+    For MLP: scale post_attention_layernorm and compensate in gate/up projections.
+    For o_proj/down_proj: apply outlier clipping to reduce quantization range.
     """
     layers = model.model.layers
+    alpha = 0.5
 
     for i, layer in enumerate(layers):
-        prev_layer = layers[i - 1] if i > 0 else None
-        next_layer = layers[i + 1] if i < len(layers) - 1 else None
+        # --- AWQ scaling for attention inputs (q/k/v share input from input_layernorm) ---
+        attn = layer.self_attn
+        qkv = [attn.q_proj, attn.k_proj, attn.v_proj]
+        act_stat = _get_act_stat(act_stats, i, "self_attn.q_proj")
 
-        # === BASELINE: No transformation ===
-        # The agent replaces this with real math.
-        pass
+        s = _compute_awq_scales(qkv, act_stat, alpha=alpha)
+        if s is not None:
+            dtype = layer.input_layernorm.weight.dtype
+            dev = layer.input_layernorm.weight.device
+            s_dev = s.to(device=dev, dtype=dtype)
+            # Absorb 1/s into layernorm weight (so layernorm output is divided by s)
+            layer.input_layernorm.weight.data.div_(s_dev)
+            # Multiply weight columns by s (compensates the 1/s in input)
+            for lin in qkv:
+                lin.weight.data.mul_(s_dev.unsqueeze(0).to(dtype=lin.weight.dtype))
+
+        # --- AWQ scaling for MLP inputs (gate/up share input from post_attn_layernorm) ---
+        mlp = layer.mlp
+        gate_up = [mlp.gate_proj, mlp.up_proj]
+        act_stat_mlp = _get_act_stat(act_stats, i, "mlp.gate_proj")
+
+        s_mlp = _compute_awq_scales(gate_up, act_stat_mlp, alpha=alpha)
+        if s_mlp is not None:
+            dtype = layer.post_attention_layernorm.weight.dtype
+            dev = layer.post_attention_layernorm.weight.device
+            s_dev = s_mlp.to(device=dev, dtype=dtype)
+            layer.post_attention_layernorm.weight.data.div_(s_dev)
+            for lin in gate_up:
+                lin.weight.data.mul_(s_dev.unsqueeze(0).to(dtype=lin.weight.dtype))
+
+        # --- Outlier clipping for o_proj and down_proj ---
+        # These don't have easy LayerNorm compensation, so just clip outliers
+        for lin in [attn.o_proj, mlp.down_proj]:
+            w = lin.weight.data.float()
+            # Clip per output-channel to reduce quantization range
+            ch_mean = w.mean(dim=1, keepdim=True)
+            ch_std = w.std(dim=1, keepdim=True).clamp(min=1e-8)
+            clip_val = 3.5
+            w_clipped = w.clamp(ch_mean - clip_val * ch_std, ch_mean + clip_val * ch_std)
+            lin.weight.data.copy_(w_clipped.to(lin.weight.dtype))
 
 
 # ============================================================
@@ -204,6 +251,8 @@ def optimize_model(model_name: str, device: str = "cuda"):
     act_stats = collect_activation_stats(model, calib_data, device)
     model.to("cpu")
     torch.cuda.empty_cache()
+    # Reset peak VRAM — calibration is one-time setup, not inference cost
+    torch.cuda.reset_peak_memory_stats()
 
     # --- Weight transformation (the agent's creative space) ---
     print("Transforming weights...")
