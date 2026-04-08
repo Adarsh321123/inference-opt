@@ -3,17 +3,16 @@
 Accumulated insights from optimization experiments. Read this before every session.
 Update every ~10 experiments with what you learned.
 
-## Environment Constraints (Critical)
+## Environment (Round 3 — UPDATED)
 
-- **Triton is broken** — gcc cannot compile triton CUDA utils. This rules out:
-  - `torch.compile()` (any mode)
-  - AWQ inference (uses triton for dequantization kernels)
-  - Any custom triton kernels
-- **auto-gptq is incompatible** with this transformers version (`no_init_weights` import error)
-- **HQQ not supported** — transformers says "hqq is not available yet and will be supported soon"
-- **torchao not installed** — not in pyproject.toml
-- **tiktoken not installed** — Phi-3-small-8k-instruct cannot be used (requires tiktoken)
-- **Only bitsandbytes works** for quantization. All optimization must work within bnb constraints.
+- **auto-gptq and autoawq are DEAD** (archived 2025). Removed from deps.
+- **NEW: torchao 0.15.0** installed — PyTorch-native Int4WeightOnly quantization. Use TorchAoConfig. Composable with torch.compile. Expected 50-80+ tok/s. Try `use_hqq=True` for better accuracy.
+- **NEW: hqq** installed — calibration-free quantization. Use HqqConfig from transformers. After loading, call `from hqq.utils.patching import prepare_for_inference; prepare_for_inference(model, backend="torchao_int4")` for fast kernels.
+- **NEW: einops** installed — Phi-3 should now work.
+- **To load pre-quantized GPTQ models**: `pip install gptqmodel` separately (requires --no-build-isolation). Use GPTQConfig(bits=4, backend="marlin") for Marlin kernels.
+- **Pre-quantized models on HuggingFace**: `hugging-quants/Meta-Llama-3.1-8B-Instruct-GPTQ-INT4` and `hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4` — can load directly.
+- **Triton works** (after `apt-get install python3-dev`). torch.compile works.
+- **bitsandbytes still works** as fallback. Best bnb config is in rounds 1-2 below.
 
 ## Best Configuration (Score ~2.0-3.2 depending on model)
 
