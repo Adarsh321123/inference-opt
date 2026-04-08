@@ -53,7 +53,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
 
     # Model-adaptive prompt lookup: Mistral benefits from higher values
     if "mistral" in model_name.lower():
-        model.generation_config.prompt_lookup_num_tokens = 128
+        model.generation_config.prompt_lookup_num_tokens = 256
     else:
         model.generation_config.prompt_lookup_num_tokens = 40
 
