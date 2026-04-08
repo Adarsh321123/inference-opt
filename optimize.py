@@ -212,7 +212,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
     # --- Quantize with torchao int4 ---
     print("Quantizing...")
     from torchao.quantization import quantize_, Int4WeightOnlyConfig
-    quant_config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=False)
+    quant_config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=False, version=1)
 
     model.model.embed_tokens.to(device)
     model.model.norm.to(device)
