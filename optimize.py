@@ -10,30 +10,33 @@ The only requirement: optimize_model() must return a working (model, tokenizer) 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
+# Force cuBLASLt for small batch GEMM — can be faster for batch-1 generation
+torch.backends.cuda.preferred_blas_library("cublaslt")
+
 
 def optimize_model(model_name: str, device: str = "cuda"):
     """
     Load and optimize a model for efficient inference.
 
     Args:
-        model_name: HuggingFace model identifier (e.g., "meta-llama/Meta-Llama-3-8B")
+        model_name: HuggingFace model identifier
         device: Target device
 
     Returns:
         (model, tokenizer) — the optimized model ready for inference
     """
     # =================================================================
-    # BASELINE: Simple 4-bit bitsandbytes NF4 quantization
-    # The agent should iterate on this to find better strategies.
+    # NF4 bf16 + uint8 quant storage + cuBLASLt for batch-1 speed
     # =================================================================
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
     quantization_config = BitsAndBytesConfig(
         load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.float16,
+        bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
+        bnb_4bit_use_double_quant=False,
+        bnb_4bit_quant_storage=torch.uint8,
     )
 
     model = AutoModelForCausalLM.from_pretrained(
@@ -42,5 +45,8 @@ def optimize_model(model_name: str, device: str = "cuda"):
         device_map="auto",
         trust_remote_code=True,
     )
+
+    # Prompt lookup decoding: use n-grams from prompt as draft tokens
+    model.generation_config.prompt_lookup_num_tokens = 40
 
     return model, tokenizer
