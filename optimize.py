@@ -50,6 +50,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
         model = torch.compile(model, mode="default")
 
     # Prompt lookup decoding: use n-grams from prompt as draft tokens
-    model.generation_config.prompt_lookup_num_tokens = 50
+    # Mistral benefits from slightly larger window (50 vs 40) without cuBLASLt
+    model.generation_config.prompt_lookup_num_tokens = 40 if is_llama else 50
 
     return model, tokenizer
