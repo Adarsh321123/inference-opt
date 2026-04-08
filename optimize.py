@@ -10,8 +10,8 @@ The only requirement: optimize_model() must return a working (model, tokenizer) 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-# Force cuBLASLt for small batch GEMM — can be faster for batch-1 generation
-torch.backends.cuda.preferred_blas_library("cublaslt")
+# cuBLASLt for batch-1 (helps Llama, neutral for Mistral)
+# torch.backends.cuda.preferred_blas_library("cublaslt")
 
 
 def optimize_model(model_name: str, device: str = "cuda"):
