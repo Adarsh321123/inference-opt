@@ -21,13 +21,16 @@ def optimize_model(model_name: str, device: str = "cuda"):
     """
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
-    # torchao Int4WeightOnly quantization — PyTorch-native, composable with torch.compile
-    quantization_config = TorchAoConfig(Int4WeightOnlyConfig(group_size=128))
+    # torchao Int4WeightOnly with HQQ quantization + TensorCoreTiled layout
+    # version=1 uses tinygemm kernels, use_hqq=True for better quantization
+    ao_config = Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1)
+    quantization_config = TorchAoConfig(ao_config)
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         quantization_config=quantization_config,
         device_map="auto",
+        torch_dtype=torch.float16,
         trust_remote_code=True,
     )
 
