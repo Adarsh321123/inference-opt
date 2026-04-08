@@ -14,7 +14,7 @@ Update every ~10 experiments with what you learned.
 - **GPTQ/AWQ loading broken**: optimum's GPTQConfig needs `gptqmodel` (not installed). Pre-quantized HF models can't be loaded.
 - **HqqConfig through transformers broken**: "not available yet" error in current transformers version.
 
-## Best Configuration (Round 3 — Score 2.75-3.88)
+## Best Configuration (Round 3 — Score 2.6-4.1)
 
 ```python
 import gc
@@ -50,9 +50,9 @@ def optimize_model(model_name, device="cuda"):
         gc.collect()
         torch.cuda.empty_cache()
 
-    # Model-specific prompt_lookup
+    # Model-specific prompt_lookup — Mistral benefits from much higher values
     if "mistral" in model_name.lower():
-        model.generation_config.prompt_lookup_num_tokens = 128
+        model.generation_config.prompt_lookup_num_tokens = 256
     else:
         model.generation_config.prompt_lookup_num_tokens = 40
 
@@ -87,13 +87,13 @@ The model.to("cuda") bulk transfer temporarily doubles GPU memory. Layer-by-laye
 - This is the opposite of bnb, where cuBLASLt helped slightly for both models.
 - The torchao tinygemm kernels have their own optimized GEMM path; cuBLASLt interferes.
 
-### prompt_lookup scales higher with torchao
+### prompt_lookup scales MUCH higher with torchao
 
 With bnb NF4, prompt_lookup sweet spot was 40 (diminishing returns above 60). With torchao int4:
-- **Llama**: 40 is still optimal (128 slightly worse)
-- **Mistral**: 128 is optimal (60→80→100→128 kept improving, 53.2 tok/s at 128)
+- **Llama**: 40 is still optimal (higher values slightly worse)
+- **Mistral**: 256 is optimal (60→100→128→200→256 kept improving, up to 61.8 tok/s at 256; 512 was too high)
 
-This is because torchao's faster forward pass means the overhead of verifying more tokens is relatively lower.
+This is because torchao's faster forward pass means the overhead of verifying more tokens is relatively lower. Mistral benefits more than Llama from this effect.
 
 ### HQQ quantization quality vs optimization
 
@@ -101,6 +101,15 @@ This is because torchao's faster forward pass means the overhead of verifying mo
 - HQQ's proximal optimization uses CUDA internally — can't avoid GPU allocation during quantization
 - If you do HQQ quantization on CPU with `device='cpu'`, it's ~100x slower (hours vs seconds)
 - The HQQ no-optimize path (skip proximal optimization) gives worse quality AND speed
+
+### Additional findings from round 3
+
+- **Eager attention hurts with torchao**: SDPA (default) is better. Opposite of bnb where eager helped Llama.
+- **group_size must be power of 2**: group_size=96 silently fails to compress (tinygemm constraint).
+- **group_size=32**: Better quality (0.935) but much slower (40.9 tok/s) and more memory (7.69 GB). Not worth it.
+- **Mixed precision (MLP int4, attention bf16)**: Better quality (0.928) and speed (50.2) but much worse memory (8.83 GB). Full int4 wins overall.
+- **torch.compile on torchao**: Neutral — tinygemm already optimized.
+- **gc.collect() in quantize loop**: Helps slightly — keep it.
 
 ### What doesn't work with torchao
 
@@ -116,15 +125,15 @@ This is because torchao's faster forward pass means the overhead of verifying mo
 
 ### Llama 3.1 8B (RTX 3090)
 - FP16 baseline: ppl 10.39, 35-38 tok/s, 15.64 GB
-- **torchao Int4 HQQ**: ppl 11.52, 48 tok/s, 7.01 GB → **score 2.47-2.81**
+- **torchao Int4 HQQ**: ppl 11.52, 47-49 tok/s, 7.01 GB → **score 2.6-2.8**
 - vs bnb NF4: ppl 11.11, 33 tok/s, 6.33 GB → **score 2.01**
-- Improvement: **37% better** than bnb
+- Improvement: **30-40% better** than bnb
 
 ### Mistral 7B v0.3 (RTX 3090)
 - FP16 baseline: ppl 8.89, 37.3 tok/s, 13.78 GB
-- **torchao Int4 HQQ**: ppl 9.27, 53-61 tok/s, 5.55 GB → **score 3.27-3.88**
+- **torchao Int4 HQQ**: ppl 9.27, 57-62 tok/s, 5.55 GB → **score 3.6-4.1**
 - vs bnb NF4: ppl 9.16, 38 tok/s, 4.47 GB → **score 2.81-3.25**
-- Improvement: **20-50% better** than bnb (large variance)
+- Improvement: **25-60% better** than bnb (large variance from baseline tps noise)
 
 ### Phi-3 small 8k instruct
 - **BLOCKED**: requires pytest package (not in deps), in addition to tiktoken
@@ -142,7 +151,7 @@ This is because torchao's faster forward pass means the overhead of verifying mo
 
 - `torchao Int4WeightOnlyConfig(group_size=128, use_hqq=True, version=1)` — BEST quantization
 - Stream layers CPU→GPU one at a time during quantization
-- `prompt_lookup_num_tokens` — 40 for Llama, 128 for Mistral
+- `prompt_lookup_num_tokens` — 40 for Llama, 256 for Mistral
 - `torch_dtype=torch.bfloat16` for torchao (required by tinygemm kernels)
 - cuBLASLt for Llama only (not Mistral)
 - Default attention (no explicit attn_implementation)
