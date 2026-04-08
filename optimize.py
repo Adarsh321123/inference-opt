@@ -46,6 +46,10 @@ def optimize_model(model_name: str, device: str = "cuda"):
         torch.cuda.empty_cache()
 
     # High prompt_lookup: torchao fast kernels amortize the verification cost
-    model.generation_config.prompt_lookup_num_tokens = 256
+    # Adaptive: Llama peaks at 40-80, Mistral at 256
+    if "llama" in model_name.lower():
+        model.generation_config.prompt_lookup_num_tokens = 64
+    else:
+        model.generation_config.prompt_lookup_num_tokens = 256
 
     return model, tokenizer
