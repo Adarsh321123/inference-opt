@@ -46,7 +46,4 @@ def optimize_model(model_name: str, device: str = "cuda"):
         attn_implementation="sdpa",
     )
 
-    # Set static KV cache for faster generation
-    model.generation_config.cache_implementation = "static"
-
     return model, tokenizer
