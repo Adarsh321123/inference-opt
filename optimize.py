@@ -6,14 +6,14 @@ THIS IS THE FILE THE AGENT MODIFIES. Everything is fair game.
 Pipeline:
 1. Load model bf16 on CPU
 2. Collect calibration data → activation statistics per layer
-3. Transform weights using custom math (CREATIVE SPACE #1)
-4. Quantize weights using custom math (CREATIVE SPACE #2)
-5. Pack quantized weights for fast inference
-6. Return optimized model
+3. Transform weights using custom math (THE AGENT'S CREATIVE SPACE)
+4. Quantize with torchao int4 (fast tinygemm kernels for inference)
+5. Return optimized model
 
-The agent modifies the quantization MATH: how weights are analyzed,
-transformed, scaled, grouped, and rounded. The goal is to discover
-techniques that produce better quality at 4-bit than existing methods.
+The agent modifies how weights are TRANSFORMED before quantization.
+This is where AWQ, QuIP#, and SmoothQuant innovate — the math that
+makes weights more quantization-friendly. torchao handles the actual
+int4 packing and inference kernels.
 """
 
 import gc
@@ -106,10 +106,10 @@ def collect_activation_stats(model, calib_data, device="cuda:0"):
 def compute_channel_importance(weight, act_stats=None, alpha=0.5):
     """
     Per-input-channel importance scores. Used to decide which channels
-    need higher quantization precision.
+    need protection during quantization.
 
-    Agent can modify the importance metric: change alpha, use std instead
-    of absmax, add Hessian information, etc.
+    Agent can modify: change alpha, use std instead of absmax,
+    add Hessian information, use different norms, etc.
     """
     w_scale = weight.abs().max(dim=0).values.clamp(min=1e-8)
 
@@ -124,41 +124,50 @@ def compute_channel_importance(weight, act_stats=None, alpha=0.5):
 
 def compute_weight_sensitivity(weight, act_stats=None):
     """
-    Estimate how sensitive the layer output is to quantization error in each weight.
-    Higher sensitivity = this weight needs more precise quantization.
+    Per-weight sensitivity: how much does quantizing this weight affect output?
+    Returns [out_features, in_features] tensor.
 
-    Agent can replace this with Hessian diagonal, Fisher information,
-    or any other sensitivity metric.
+    Agent can replace with Hessian diagonal, Fisher information, etc.
     """
-    # Simple sensitivity: weight magnitude * activation magnitude
     w_mag = weight.abs()
     if act_stats is not None and "absmax" in act_stats:
         a_mag = act_stats["absmax"].to(weight.device).clamp(min=1e-8)
-        return w_mag * a_mag.unsqueeze(0)  # [out, in]
+        return w_mag * a_mag.unsqueeze(0)
     return w_mag
 
 
 # ============================================================
-# WEIGHT TRANSFORMATION — CREATIVE SPACE #1
+# WEIGHT TRANSFORMATION — THE AGENT'S CREATIVE SPACE
 # ============================================================
 
 def transform_weights_for_quantization(model, act_stats):
     """
     Apply mathematical transformations to model weights before quantization.
-    The agent has access to ALL layers and can do cross-layer compensation.
+    Has access to ALL layers for cross-layer compensation.
 
-    THIS IS CREATIVE SPACE #1.
+    THIS IS THE FUNCTION THE AGENT SHOULD MODIFY.
 
-    Baseline: no transformation.
+    Baseline: no transformation (naive round-to-nearest via torchao).
 
     Techniques to explore:
     - AWQ-style channel scaling: scale important channels up in layer N,
-      scale down corresponding outputs in layer N-1 to compensate
-    - Outlier clipping: clip extreme values to reduce quantization range
-    - Hadamard rotation: rotate weight matrices for more uniform distribution
-    - SmoothQuant: balance quantization difficulty between weights and activations
-    - Per-channel zero-centering
-    - Novel combinations
+      compensate by scaling down in layer N-1's output projection.
+      Key: importance = (activation_mag ** alpha) * (weight_mag ** (1-alpha))
+    - Outlier clipping: clip extreme weight values to reduce quantization range.
+      Trade small accuracy loss on outliers for better precision on the bulk.
+    - Hadamard rotation (QuIP#): multiply W by orthogonal Hadamard matrix
+      to spread information uniformly. Requires compensating in adjacent layers.
+    - SmoothQuant: migrate quantization difficulty from activations to weights
+      by per-channel scaling: W_new = W * diag(s), X_new = X / diag(s)
+    - Per-channel zero-centering: shift each channel to be symmetric around zero
+      for better symmetric quantization.
+    - Novel combinations of the above.
+
+    The agent has access to:
+    - model.model.layers[i] — all transformer layers
+    - act_stats — per-layer activation statistics from calibration
+    - compute_channel_importance() — importance scoring
+    - compute_weight_sensitivity() — per-weight sensitivity
     """
     layers = model.model.layers
 
@@ -169,130 +178,6 @@ def transform_weights_for_quantization(model, act_stats):
         # === BASELINE: No transformation ===
         # The agent replaces this with real math.
         pass
-
-
-# ============================================================
-# QUANTIZATION MATH — CREATIVE SPACE #2
-# ============================================================
-
-def compute_group_scales(weight, group_size=GROUP_SIZE, bits=BITS):
-    """
-    Compute per-group quantization scale and zero-point.
-
-    Agent can modify:
-    - Symmetric vs asymmetric quantization
-    - Scale computation (min-max, percentile, MSE-optimal)
-    - Group boundaries (uniform, adaptive based on weight distribution)
-    """
-    w = weight.float()
-    out_features, in_features = w.shape
-
-    # Pad if needed
-    if in_features % group_size != 0:
-        pad = group_size - (in_features % group_size)
-        w = nn.functional.pad(w, (0, pad))
-
-    # Reshape into groups
-    w_grouped = w.reshape(-1, group_size)  # [n_groups, group_size]
-
-    # Symmetric min-max scaling
-    n_levels = 2 ** bits
-    half = n_levels // 2
-    absmax = w_grouped.abs().amax(dim=1, keepdim=True).clamp(min=1e-8)
-    scale = absmax / half
-
-    return scale, w_grouped
-
-
-def quantize_weights(weight, group_size=GROUP_SIZE, bits=BITS):
-    """
-    Quantize a weight matrix to N-bit integers with per-group scaling.
-    Returns the DEQUANTIZED weight (simulated quantization).
-
-    Agent can modify:
-    - Rounding: nearest, stochastic, GPTQ-style optimal rounding
-    - Clipping: clip outliers before computing scale
-    - Non-uniform quantization: log-scale, learned grid, k-means
-    - Error feedback: propagate rounding error to subsequent weights
-    """
-    w = weight.float()
-    orig_shape = w.shape
-    out_features, in_features = orig_shape
-
-    n_levels = 2 ** bits
-    half = n_levels // 2
-
-    # Pad if needed
-    padded = False
-    if in_features % group_size != 0:
-        pad = group_size - (in_features % group_size)
-        w = nn.functional.pad(w, (0, pad))
-        padded = True
-
-    w_grouped = w.reshape(-1, group_size)
-
-    # === Scale computation ===
-    # Baseline: symmetric min-max
-    absmax = w_grouped.abs().amax(dim=1, keepdim=True).clamp(min=1e-8)
-    scale = absmax / half
-
-    # === Quantize ===
-    # Baseline: round to nearest
-    w_int = torch.round(w_grouped / scale).clamp(-half, half - 1)
-
-    # === Dequantize ===
-    w_deq = w_int * scale
-
-    # Reshape back
-    w_deq = w_deq.reshape(w.shape)
-    if padded:
-        w_deq = w_deq[:, :in_features]
-
-    return w_deq.to(weight.dtype)
-
-
-def quantize_layer_custom(layer, act_stats=None, layer_idx=0):
-    """
-    Apply custom quantization to all linear layers in a transformer layer.
-    Uses quantize_weights() which the agent can modify.
-    """
-    for name, module in layer.named_modules():
-        if isinstance(module, nn.Linear):
-            w = module.weight.data
-            stats_key = f"model.layers.{layer_idx}.{name}"
-            stats = act_stats.get(stats_key) if act_stats else None
-
-            # Quantize → dequantize (simulated quantization)
-            w_quantized = quantize_weights(w, GROUP_SIZE, BITS)
-            module.weight.data = w_quantized
-
-
-# ============================================================
-# QUANTIZATION BACKEND SELECTION
-# ============================================================
-
-USE_TORCHAO = True  # True = torchao int4 kernels (fast). False = simulated quantization (flexible).
-
-
-def quantize_layer(layer, quant_config, act_stats=None, layer_idx=0):
-    """
-    Quantize a layer. Two modes:
-
-    USE_TORCHAO=True: Use torchao int4 kernels for fast inference.
-      The agent's transform_weights_for_quantization() runs BEFORE this,
-      and torchao handles the actual int4 packing.
-
-    USE_TORCHAO=False: Use custom quantize_weights() for full control.
-      Simulated quantization — model stays bf16 but weights have int4 precision.
-      Slower inference, but the agent controls every aspect of the math.
-
-    The agent can switch between modes to test quality (simulated) vs speed (torchao).
-    """
-    if USE_TORCHAO:
-        from torchao.quantization import quantize_
-        quantize_(layer, quant_config)
-    else:
-        quantize_layer_custom(layer, act_stats, layer_idx)
 
 
 # ============================================================
@@ -320,28 +205,23 @@ def optimize_model(model_name: str, device: str = "cuda"):
     model.to("cpu")
     torch.cuda.empty_cache()
 
-    # --- Weight transformation (creative space #1) ---
+    # --- Weight transformation (the agent's creative space) ---
     print("Transforming weights...")
     transform_weights_for_quantization(model, act_stats)
 
-    # --- Quantization (creative space #2) ---
+    # --- Quantize with torchao int4 ---
     print("Quantizing...")
-    if USE_TORCHAO:
-        from torchao.quantization import Int4WeightOnlyConfig
-        quant_config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1)
-    else:
-        quant_config = None
+    from torchao.quantization import quantize_, Int4WeightOnlyConfig
+    quant_config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1)
 
-    # Move non-quantizable layers to GPU
     model.model.embed_tokens.to(device)
     model.model.norm.to(device)
     model.model.rotary_emb.to(device)
     model.lm_head.to(device)
 
-    # Stream each layer: CPU → GPU, quantize
     for i, layer in enumerate(model.model.layers):
         layer.to(device)
-        quantize_layer(layer, quant_config, act_stats, i)
+        quantize_(layer, quant_config)
         gc.collect()
         torch.cuda.empty_cache()
 
