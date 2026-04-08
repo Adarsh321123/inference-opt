@@ -9,9 +9,10 @@ To set up a new experiment, work with the user to:
 1. **Agree on a run tag**: propose a tag based on today's date (e.g. `apr7`). The branch `inference-opt/<tag>` must not already exist — this is a fresh run.
 2. **Create the branch**: `git checkout -b inference-opt/<tag>` from current main.
 3. **Read the in-scope files**: The repo is small. Read these files for full context:
+   - `README.md` — repository context.
    - `program.md` — these instructions.
    - `knowledge.md` — accumulated insights from prior runs. Read this carefully.
-   - `evaluate.py` — fixed evaluation harness, dataloader, metrics. Do not modify.
+   - `evaluate.py` — fixed evaluation harness, metrics. Do not modify.
    - `optimize.py` — the file you modify. Optimization strategy, quantization, compression.
 4. **Install dependencies**: Run `uv sync`.
 5. **Run baseline**: `uv run evaluate.py --baseline --model <model_name>` to establish the FP16 baseline. This writes `baseline.json`.
