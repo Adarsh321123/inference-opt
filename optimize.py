@@ -1,6 +1,6 @@
 """
-LLM Inference Optimization — Gemlite Int4 Pipeline
-====================================================
+LLM Inference Optimization — FP4 Weight Quantization
+=====================================================
 THIS IS THE FILE THE AGENT MODIFIES. Everything is fair game.
 """
 
@@ -10,8 +10,6 @@ import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 torch.backends.cudnn.benchmark = True
-
-GROUP_SIZE = 128
 
 
 def optimize_model(model_name: str, device: str = "cuda"):
@@ -26,10 +24,10 @@ def optimize_model(model_name: str, device: str = "cuda"):
         low_cpu_mem_usage=True,
     )
 
-    # Quantize with gemlite int4
-    print("Quantizing with gemlite...")
-    from torchao.quantization import quantize_, GemliteUIntXWeightOnlyConfig
-    config = GemliteUIntXWeightOnlyConfig(group_size=GROUP_SIZE, bit_width=4)
+    # Quantize with FP4 (e2m1) — floating point 4-bit
+    print("Quantizing with FP4...")
+    from torchao.quantization import quantize_, FPXWeightOnlyConfig
+    config = FPXWeightOnlyConfig(ebits=2, mbits=1)
 
     model.model.embed_tokens.to(device)
     model.model.norm.to(device)
