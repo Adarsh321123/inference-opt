@@ -79,9 +79,41 @@ Score ~2.6 (varies 2.5-2.8 from speedup noise): HQQ int4 gs=128 + prompt_lookup=
 - speedup: 1.25-1.40 (noise)
 - memory_reduction: 2.23 (fixed)
 
-### Transferable Insights for Future Models
+### Mistral Experiments (10+ experiments)
+
+**AWQ improves quality but kills speedup via prompt_lookup**:
+- AWQ scaling (calibration-based): quality 0.969 vs 0.959, BUT speedup drops 1.72→1.12
+- AWQ scaling (weight-only): quality 0.969 vs 0.959, BUT speedup drops 1.65→1.03
+- Root cause: AWQ changes the model's output distribution, reducing n-gram match rate in prompt_lookup speculative decoding
+- Raw kernel speed is IDENTICAL with/without AWQ (23.3 vs 23.6 tps without prompt_lookup)
+
+**Critical insight: int4 is SLOWER than FP16 at batch=1**:
+- Without prompt_lookup: int4 HQQ gets 23.3 tps, FP16 baseline gets 36.8 tps (0.63x!)
+- Dequantization overhead dominates at batch=1 autoregressive generation
+- prompt_lookup enables batched verification, which makes int4 2.5x faster (23→60 tps)
+- Therefore: prompt_lookup is not just a speedup optimization — it's ESSENTIAL for int4 to beat FP16
+
+**Disabling cuBLASLt no longer helps Mistral** (might be version-dependent)
+
+**Tied embed/lm_head weights destroy quality** (ppl 59K — they're trained separately)
+
+### Best Score: Mistral 7B
+Score ~4.0 (varies 3.6-4.1 from speedup noise): HQQ int4 gs=128 + prompt_lookup=256
+- quality_retained: 0.9590 (fixed)
+- speedup: 1.50-1.72 (noise)
+- memory_reduction: 2.48 (fixed)
+
+### Phi-3-small: BLOCKED
+- Requires pytest which isn't in dependencies
+- Would need pyproject.toml update
+
+### Transferable Insights (All Rounds)
 1. Don't try weight transforms with HQQ — they interfere with HQQ's optimization
 2. Don't clip weight outliers — they're critical for model quality
 3. RTN in torchao 0.15.0 is broken for speedup — always use HQQ
 4. Keep the pipeline simple: load → stream layers → HQQ quantize → prompt_lookup
 5. The only way to improve quality is a fundamentally different quantization algorithm (GPTQ, etc.)
+6. prompt_lookup is ESSENTIAL — without it, int4 is slower than FP16 at batch=1
+7. Anything that changes model output distribution (AWQ, weight transforms) reduces prompt_lookup effectiveness
+8. lm_head quantization with HQQ causes massive VRAM spikes — avoid
+9. The simplest pipeline consistently gives the best results
