@@ -2,58 +2,49 @@
 
 Accumulated insights from 170+ experiments across 4 rounds. Read this before every session.
 
-## Rounds 1-3: Library-Level Optimization
+## Rounds 1-4 Summary
 
-Best scores with existing library configurations:
-- Llama 3.1 8B: score 2.7 (torchao Int4 HQQ gs=128 + prompt_lookup=64)
-- Mistral 7B: score 3.9 (torchao Int4 HQQ gs=128 + prompt_lookup=256)
+Rounds 1-3 optimized library configurations: torchao HQQ int4 + prompt_lookup.
+Best scores: Llama 2.7, Mistral 3.9.
 
-## Round 4: Weight Transformations (FAILED)
+Round 4 tried weight transforms before HQQ. ALL failed — HQQ already optimizes
+for the weight distribution. Transforms interfere with it.
 
-Tried 40+ experiments applying math transformations before HQQ quantization. ALL made things worse:
-- AWQ-style channel scaling: improved quality 0.959→0.969 but killed prompt_lookup speedup (1.72→1.12x). Net WORSE.
-- Outlier clipping (3σ, 6σ): destroyed quality. Outlier weights carry critical information.
-- Bias correction: hurt quality.
-- Mixed precision (keep some layers bf16): killed speedup.
+Key lesson: calling library functions limits you to library quality.
+To beat HQQ (quality 0.90 Llama, 0.96 Mistral), you must write the algorithm yourself.
 
-**Why transforms failed:** HQQ already optimizes its quantization grid for the weight distribution. Changing the distribution before HQQ makes its job harder, not easier.
+## Round 5: From-Scratch Quantization
 
-**Key discovery:** AWQ changes the model's output distribution, reducing n-gram match rate in prompt_lookup speculative decoding. Any transform that changes output distribution hurts prompt_lookup.
+optimize.py now implements int4 quantization FROM SCRATCH:
+- compute_scales(): per-group scale computation (agent modifies)
+- quantize_weight(): rounding logic (agent modifies)
+- Triton kernel: int4 dequant + matvec (agent modifies)
+- QuantizedLinear: drop-in nn.Linear replacement
+- Calibration: activation absmax + Hessian diagonal per channel
 
-**Key discovery:** Int4 is SLOWER than FP16 at batch=1 (23 vs 37 tok/s). prompt_lookup is essential — it enables batched verification that makes int4 2.5x faster (23→60 tok/s).
+The baseline is naive symmetric RTN. Quality bars to beat:
+- HQQ: Llama 0.9021, Mistral 0.9590
+- AWQ/GPTQ (published): ~0.97 for both
 
-## Round 4 Conclusions
+## Key Findings from All Rounds
 
-- Don't transform weights before HQQ — it interferes with HQQ's optimization
-- Don't clip outliers — they're critical
-- RTN (use_hqq=False) in torchao 0.15.0 doesn't engage fast tinygemm kernels
-- group_size=64 improves quality but kills speedup
-- torch.compile doesn't help for short generation
-- lm_head quantization causes massive VRAM spikes
-- Quality is deterministic: Llama 0.9021, Mistral 0.9590 with HQQ int4 gs=128
+- prompt_lookup_num_tokens is essential: int4 is SLOWER than FP16 at batch=1 without it
+- prompt_lookup sweet spot: 64 for Llama, 256 for Mistral
+- Outlier weights are sacred — never clip them
+- Quality at 4-bit varies 85-97% across methods — the MATH matters
+- Mistral retains quality better under 4-bit than Llama
+- Calibration data from WikiText-2 works well for general models
 
-## Round 5: Replace HQQ's Quantization Math
+## Techniques to Implement and Beat
 
-The lesson from round 4: don't work AROUND HQQ, REPLACE it.
-
-torchao's quantize_() with use_hqq=True calls HQQ internally to compute int4 values, then packs them into TensorCoreTiledLayout for fast tinygemm inference. The approach:
-
-1. Read torchao's source to understand how HQQ is called internally
-2. Write a custom quantization function that computes BETTER int4 values
-3. Pack those values into the same torchao int4 format
-4. Get fast inference from the same tinygemm kernels
-
-CRITICAL from round 4: RTN (use_hqq=False) does NOT engage fast tinygemm kernels.
-RTN gives 1.01x speedup vs HQQ's 1.30x. So we MUST keep use_hqq=True.
-
-Approach: monkey-patch HQQ's internal rounding function with custom math.
-1. Read torchao's source: `python -c "import torchao; print(torchao.__file__)"`
-2. Trace how Int4WeightOnlyConfig(use_hqq=True) triggers HQQ rounding
-3. Find the specific function that does rounding/scale computation
-4. Replace it with custom logic (GPTQ-style Hessian rounding, etc.)
-5. Call quantize_() normally — gets HQQ's fast kernel path + custom math
-
-The calibration collects Hessians (H = X^T X) stored in _layer_hessians global.
-The monkey-patched function can read these for GPTQ-style optimal rounding.
-
-Quality bars to beat: Llama 0.9021, Mistral 0.9590 (HQQ int4 gs=128).
+- GPTQ: use H_diag (Hessian diagonal) to pick optimal rounding direction.
+  For each weight: compare round-up vs round-down error weighted by H_diag.
+  This is ~10 lines of code change in quantize_weight().
+- Asymmetric quantization: use actual min/max instead of symmetric absmax.
+  Captures skewed distributions better.
+- Percentile clipping: compute scale from 99.9th percentile instead of max.
+  Reduces scale, improves precision for bulk of weights.
+- MSE-optimal scale: binary search for scale that minimizes reconstruction MSE.
+- Error feedback: propagate rounding error to subsequent columns (like GPTQ).
+- Activation-aware scaling: weight scale by channel activation magnitude (AWQ-style).
+  But implement it IN the scale computation, not as a pre-transform.

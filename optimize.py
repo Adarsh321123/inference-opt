@@ -1,50 +1,215 @@
 """
-LLM Inference Optimization — Custom Quantization Pipeline
-==========================================================
+LLM Inference Optimization — From-Scratch Quantization
+=======================================================
 THIS IS THE FILE THE AGENT MODIFIES. Everything is fair game.
 
-Round 5 approach: monkey-patch HQQ's internal rounding with custom math.
+This file implements int4 quantization and inference FROM SCRATCH:
+- Custom quantization math (scale, rounding, grouping)
+- Custom Triton kernel for dequantize + matmul
+- Custom nn.Linear replacement
+- Calibration-aware quantization using activation statistics
 
-WHY: torchao's HQQ code path produces fast tinygemm inference (1.3x speedup).
-RTN does NOT (1.01x). So we MUST use the HQQ code path. But we want custom
-quantization math. Solution: find where HQQ does rounding inside torchao's
-source and replace that function with our own.
-
-STEPS FOR THE AGENT:
-1. Find torchao's installed source. Start with:
-   python -c "import torchao; print(torchao.__file__)"
-   Then explore the quantization directory, especially:
-   - How Int4WeightOnlyConfig(use_hqq=True) triggers HQQ
-   - Where HQQ computes scales and rounds weights
-   - What function signature to match for the monkey-patch
-
-2. Write a custom rounding/scale function that matches HQQ's interface
-   but uses better math (GPTQ-style Hessian rounding, MSE-optimal scale, etc.)
-
-3. Monkey-patch it BEFORE calling quantize_():
-   import torchao.some.internal.module as m
-   m.hqq_rounding_function = my_custom_function
-
-4. Call quantize_(layer, config) as normal — it uses HQQ's code path
-   (fast kernels) but with our custom rounding decisions.
-
-The calibration infrastructure below collects Hessians (H = X^T X) that
-the custom rounding function can use for GPTQ-style optimal rounding.
+No torchao, no bitsandbytes, no library quantization calls.
+The agent controls every line of the algorithm.
 """
 
 import gc
+import math
 import torch
 import torch.nn as nn
+import triton
+import triton.language as tl
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 # ============================================================
-# QUANTIZATION HYPERPARAMETERS
+# HYPERPARAMETERS
 # ============================================================
 BITS = 4
 GROUP_SIZE = 128
 CALIBRATION_SAMPLES = 128
 CALIBRATION_SEQ_LEN = 512
+
+
+# ============================================================
+# TRITON KERNEL: int4 dequantize + matrix-vector product
+# ============================================================
+
+@triton.jit
+def int4_matvec_kernel(
+    # Pointers
+    output_ptr, input_ptr, weight_packed_ptr, scales_ptr, zeros_ptr,
+    # Dimensions
+    M,  # out_features
+    K,  # in_features
+    groups_per_row,  # K // GROUP_SIZE
+    # Block sizes
+    BLOCK_M: tl.constexpr,
+    BLOCK_K: tl.constexpr,
+):
+    """
+    Compute y = W @ x where W is stored as packed int4 with per-group scales.
+
+    Weight packing: two int4 values packed per uint8 byte.
+    weight_packed shape: [M, K // 2]
+    scales shape: [M, groups_per_row]
+    zeros shape: [M, groups_per_row]
+    input shape: [K]
+    output shape: [M]
+    """
+    row_idx = tl.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)
+    row_mask = row_idx < M
+
+    acc = tl.zeros((BLOCK_M,), dtype=tl.float32)
+
+    for k_start in range(0, K, BLOCK_K):
+        k_idx = k_start + tl.arange(0, BLOCK_K)
+        k_mask = k_idx < K
+
+        # Load input activations
+        x = tl.load(input_ptr + k_idx, mask=k_mask, other=0.0).to(tl.float32)
+
+        # Load packed int4 weights (2 values per byte)
+        byte_idx = k_idx // 2
+        packed_offset = row_idx[:, None] * (K // 2) + byte_idx[None, :]
+        packed = tl.load(weight_packed_ptr + packed_offset, mask=row_mask[:, None] & k_mask[None, :], other=0)
+
+        # Unpack: even indices = low nibble, odd indices = high nibble
+        is_high = (k_idx % 2 == 1)
+        unpacked = tl.where(is_high[None, :], (packed >> 4) & 0xF, packed & 0xF)
+
+        # Convert from unsigned [0, 15] to signed [-8, 7]
+        w_int = (unpacked.to(tl.int8) - 8).to(tl.float32)
+
+        # Load per-group scale and zero
+        group_idx = k_idx // BLOCK_K  # approximate group index
+        group_id = k_start // GROUP_SIZE
+        scale_offset = row_idx * groups_per_row + group_id
+        s = tl.load(scales_ptr + scale_offset, mask=row_mask, other=1.0).to(tl.float32)
+        z = tl.load(zeros_ptr + scale_offset, mask=row_mask, other=0.0).to(tl.float32)
+
+        # Dequantize: w_float = (w_int - zero) * scale
+        w_float = (w_int - z[:, None]) * s[:, None]
+
+        # Dot product accumulation
+        acc += tl.sum(w_float * x[None, :], axis=1)
+
+    tl.store(output_ptr + row_idx, acc, mask=row_mask)
+
+
+# ============================================================
+# WEIGHT PACKING
+# ============================================================
+
+def pack_int4(w_int4):
+    """Pack int4 tensor into uint8 (2 values per byte). Input range [-8, 7]."""
+    w_uint = (w_int4 + 8).to(torch.uint8)  # shift to [0, 15]
+    assert w_uint.shape[-1] % 2 == 0, "in_features must be even"
+    low = w_uint[..., 0::2]
+    high = w_uint[..., 1::2]
+    return low | (high << 4)
+
+
+# ============================================================
+# QUANTIZATION MATH — THE AGENT'S CREATIVE SPACE
+# ============================================================
+
+def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS):
+    """
+    Compute per-group quantization scales and zero points.
+
+    THE AGENT MODIFIES THIS to implement better scale computation:
+    - Percentile clipping (ignore top 0.1%)
+    - MSE-optimal scale (grid search)
+    - Asymmetric quantization
+    - Activation-aware scaling
+    """
+    w = weight.float()
+    out_feat, in_feat = w.shape
+    n_groups = in_feat // group_size
+    n_levels = 2 ** bits
+
+    w_grouped = w[:, :n_groups * group_size].reshape(out_feat, n_groups, group_size)
+
+    # Baseline: symmetric min-max
+    absmax = w_grouped.abs().amax(dim=2).clamp(min=1e-8)
+    scales = absmax / (n_levels // 2)
+    zeros = torch.zeros_like(scales)
+
+    return scales, zeros
+
+
+def quantize_weight(weight, scales, zeros, group_size=GROUP_SIZE, bits=BITS):
+    """
+    Quantize weight matrix using precomputed scales and zeros.
+    Returns int4 values in range [-8, 7].
+
+    THE AGENT MODIFIES THIS to implement better rounding:
+    - GPTQ-style: use Hessian to pick optimal rounding direction
+    - Stochastic rounding
+    - Error feedback across groups
+    """
+    w = weight.float()
+    out_feat, in_feat = w.shape
+    n_groups = in_feat // group_size
+    n_levels = 2 ** bits
+    half = n_levels // 2
+
+    w_grouped = w[:, :n_groups * group_size].reshape(out_feat, n_groups, group_size)
+
+    # Baseline: round to nearest
+    w_scaled = w_grouped / scales.unsqueeze(2).clamp(min=1e-8)
+    w_int = torch.round(w_scaled).clamp(-half, half - 1).to(torch.int8)
+
+    return w_int.reshape(out_feat, n_groups * group_size)
+
+
+# ============================================================
+# CUSTOM LINEAR LAYER
+# ============================================================
+
+class QuantizedLinear(nn.Module):
+    """Drop-in replacement for nn.Linear using int4 weights + Triton kernel."""
+
+    def __init__(self, in_features, out_features, weight_packed, scales, zeros,
+                 bias=None, group_size=GROUP_SIZE):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.group_size = group_size
+        self.groups_per_row = in_features // group_size
+
+        self.register_buffer('weight_packed', weight_packed)
+        self.register_buffer('scales', scales)
+        self.register_buffer('zeros', zeros)
+        if bias is not None:
+            self.register_buffer('bias', bias)
+        else:
+            self.bias = None
+
+    def forward(self, x):
+        orig_shape = x.shape
+        x_flat = x.reshape(-1, self.in_features)
+        batch = x_flat.shape[0]
+
+        output = torch.empty(batch, self.out_features, device=x.device, dtype=torch.float32)
+
+        BLOCK_M = 64
+        BLOCK_K = self.group_size  # process one group at a time
+        grid = ((self.out_features + BLOCK_M - 1) // BLOCK_M,)
+
+        for b in range(batch):
+            int4_matvec_kernel[grid](
+                output[b], x_flat[b], self.weight_packed, self.scales, self.zeros,
+                self.out_features, self.in_features, self.groups_per_row,
+                BLOCK_M=BLOCK_M, BLOCK_K=BLOCK_K,
+            )
+
+        output = output.to(x.dtype)
+        if self.bias is not None:
+            output = output + self.bias
+
+        return output.reshape(*orig_shape[:-1], self.out_features)
 
 
 # ============================================================
@@ -65,11 +230,7 @@ def load_calibration_data(tokenizer, n_samples=CALIBRATION_SAMPLES, seq_len=CALI
 
 
 def collect_activation_stats(model, calib_data, device="cuda:0"):
-    """
-    Run calibration data and collect per-linear-layer Hessians (H = X^T X)
-    and activation channel statistics. The Hessian is used for GPTQ-style
-    optimal rounding: the error from rounding weight w_i is weighted by H_ii.
-    """
+    """Collect per-linear-layer activation absmax and Hessian diagonal."""
     stats = {}
     hooks = []
 
@@ -81,12 +242,12 @@ def collect_activation_stats(model, calib_data, device="cuda:0"):
                 n = flat.shape[-1]
                 stats[name] = {
                     "absmax": torch.zeros(n, device=flat.device),
-                    "H": torch.zeros(n, n, device=flat.device),
+                    "H_diag": torch.zeros(n, device=flat.device),
                     "count": 0,
                 }
             s = stats[name]
             s["absmax"] = torch.max(s["absmax"], flat.abs().max(dim=0).values)
-            s["H"] += flat.T @ flat
+            s["H_diag"] += (flat ** 2).sum(dim=0)
             s["count"] += flat.shape[0]
         return hook_fn
 
@@ -107,48 +268,41 @@ def collect_activation_stats(model, calib_data, device="cuda:0"):
 
     for name in stats:
         s = stats[name]
-        s["H"] = s["H"] / max(s["count"], 1)
+        s["H_diag"] = s["H_diag"] / max(s["count"], 1)
 
     return stats
 
 
 # ============================================================
-# MONKEY-PATCH HQQ — THE AGENT'S CREATIVE SPACE
+# QUANTIZE A LINEAR MODULE
 # ============================================================
 
-# Global dict: the agent stores Hessians here so the monkey-patched
-# function can access them during quantize_().
-_layer_hessians = {}
-
-
-def patch_hqq_quantization():
+def quantize_linear(module, stats=None):
     """
-    Find and replace HQQ's internal rounding function with custom math.
-
-    THE AGENT MUST IMPLEMENT THIS by:
-    1. Reading torchao's source to find HQQ's rounding logic
-    2. Writing a replacement that uses _layer_hessians for better rounding
-    3. Monkey-patching the function before quantize_() is called
-
-    EXAMPLE (agent should verify the actual function path):
-
-    import torchao.prototype.hqq as hqq_module
-
-    original_quantize = hqq_module.some_quantize_function
-
-    def custom_quantize(weight, ...):
-        # Use Hessian for GPTQ-style optimal rounding:
-        # For each weight w_i, compare:
-        #   error_up   = (ceil(w_i/s)*s - w_i)^2 * H_ii
-        #   error_down = (floor(w_i/s)*s - w_i)^2 * H_ii
-        # Pick the direction with smaller error.
-        ...
-
-    hqq_module.some_quantize_function = custom_quantize
+    Quantize an nn.Linear → QuantizedLinear.
+    Agent can modify to use stats for calibration-aware quantization.
     """
-    # === BASELINE: No patch (plain HQQ) ===
-    # The agent replaces this with the actual monkey-patch.
-    pass
+    weight = module.weight.data
+    bias = module.bias.data if module.bias is not None else None
+    out_feat, in_feat = weight.shape
+
+    # Ensure in_features is divisible by group_size and by 2 (for packing)
+    assert in_feat % GROUP_SIZE == 0, f"in_features {in_feat} not divisible by {GROUP_SIZE}"
+    assert in_feat % 2 == 0, f"in_features {in_feat} must be even for int4 packing"
+
+    # Compute scales (agent modifies compute_scales)
+    scales, zeros = compute_scales(weight, GROUP_SIZE, BITS)
+
+    # Quantize (agent modifies quantize_weight)
+    w_int4 = quantize_weight(weight, scales, zeros, GROUP_SIZE, BITS)
+
+    # Pack into uint8
+    w_packed = pack_int4(w_int4)
+
+    return QuantizedLinear(
+        in_feat, out_feat, w_packed, scales, zeros,
+        bias=bias, group_size=GROUP_SIZE,
+    )
 
 
 # ============================================================
@@ -156,8 +310,6 @@ def patch_hqq_quantization():
 # ============================================================
 
 def optimize_model(model_name: str, device: str = "cuda"):
-    global _layer_hessians
-
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
     print("Loading model bf16 on CPU...")
@@ -170,35 +322,30 @@ def optimize_model(model_name: str, device: str = "cuda"):
     )
 
     # --- Calibration ---
-    print("Collecting activation statistics + Hessians...")
+    print("Collecting activation statistics...")
     calib_data = load_calibration_data(tokenizer)
     model.to(device)
     act_stats = collect_activation_stats(model, calib_data, device)
     model.to("cpu")
     torch.cuda.empty_cache()
 
-    # Store Hessians globally so monkey-patched function can access them
-    _layer_hessians = act_stats
-
-    # --- Monkey-patch HQQ (agent's creative space) ---
-    patch_hqq_quantization()
-
-    # --- Quantize with HQQ code path (fast tinygemm kernels) ---
+    # --- Quantize all linear layers ---
     print("Quantizing...")
-    from torchao.quantization import quantize_, Int4WeightOnlyConfig
-    config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1)
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            parent_name = ".".join(name.split(".")[:-1])
+            child_name = name.split(".")[-1]
+            parent = model.get_submodule(parent_name) if parent_name else model
 
-    model.model.embed_tokens.to(device)
-    model.model.norm.to(device)
-    if hasattr(model.model, 'rotary_emb'):
-        model.model.rotary_emb.to(device)
-    model.lm_head.to(device)
+            stats = act_stats.get(name)
+            q_linear = quantize_linear(module, stats)
+            q_linear.to(device)
+            setattr(parent, child_name, q_linear)
 
-    for i, layer in enumerate(model.model.layers):
-        layer.to(device)
-        quantize_(layer, config)
-        gc.collect()
-        torch.cuda.empty_cache()
+    # Move remaining modules to GPU
+    model.to(device)
+    gc.collect()
+    torch.cuda.empty_cache()
 
     # --- Inference config ---
     is_llama = "llama" in model_name.lower()
