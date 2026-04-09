@@ -1,6 +1,6 @@
 """
-LLM Inference Optimization — W4A8 Quantization
-================================================
+LLM Inference Optimization — HQQ Int4 + Quantized lm_head
+==========================================================
 THIS IS THE FILE THE AGENT MODIFIES. Everything is fair game.
 """
 
@@ -10,6 +10,8 @@ import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 torch.backends.cudnn.benchmark = True
+
+GROUP_SIZE = 128
 
 
 def optimize_model(model_name: str, device: str = "cuda"):
@@ -24,15 +26,18 @@ def optimize_model(model_name: str, device: str = "cuda"):
         low_cpu_mem_usage=True,
     )
 
-    # Quantize with W4A8 (int8 dynamic activation + int4 weight)
-    print("Quantizing with W4A8...")
-    from torchao.quantization import quantize_, Int8DynamicActivationInt4WeightConfig
-    config = Int8DynamicActivationInt4WeightConfig(group_size=128)
+    # Quantize with torchao int4 HQQ
+    print("Quantizing...")
+    from torchao.quantization import quantize_, Int4WeightOnlyConfig
+    config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1)
 
     model.model.embed_tokens.to(device)
     model.model.norm.to(device)
     model.model.rotary_emb.to(device)
+
+    # Quantize lm_head too (saves ~0.8 GB VRAM)
     model.lm_head.to(device)
+    quantize_(model.lm_head, config)
 
     for layer in model.model.layers:
         layer.to(device)
