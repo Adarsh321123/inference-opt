@@ -183,6 +183,7 @@ class QuantizedLinear(nn.Module):
             M, K, K // 2, self.groups_per_row,
             GROUP_SIZE_CONST=self.group_size,
             BLOCK_M=BLOCK_M, BLOCK_K=BLOCK_K,
+            num_warps=8,
         )
 
         return F.linear(x, w_deq, self.bias)
