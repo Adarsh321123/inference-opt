@@ -117,3 +117,8 @@ Score ~4.0 (varies 3.6-4.1 from speedup noise): HQQ int4 gs=128 + prompt_lookup=
 7. Anything that changes model output distribution (AWQ, weight transforms) reduces prompt_lookup effectiveness
 8. lm_head quantization with HQQ causes massive VRAM spikes — avoid
 9. The simplest pipeline consistently gives the best results
+10. Post-quantization fine-tuning blocked: aten::_weight_int4pack_mm has no backward implementation
+11. Quantized KV cache (HQQ 4-bit) doesn't help for short sequences (<128 tokens)
+12. inner_k_tiles in TensorCoreTiledLayout (2/4/8) makes no measurable difference
+13. Removing per-layer gc.collect()/empty_cache() is safe and saves ~5s optimization time
+14. Score noise is significant: Llama ±11%, Mistral ±14% — due to speedup variance in baseline
