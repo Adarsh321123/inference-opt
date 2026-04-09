@@ -1,6 +1,6 @@
 """
-LLM Inference Optimization — HQQ Int4 + Weight-Only AWQ
-========================================================
+LLM Inference Optimization — HQQ Int4 Pipeline
+================================================
 THIS IS THE FILE THE AGENT MODIFIES. Everything is fair game.
 """
 
@@ -14,47 +14,6 @@ torch.backends.cudnn.benchmark = True
 GROUP_SIZE = 128
 
 
-def awq_scale_layer_weight_only(layer, alpha=0.5):
-    """
-    AWQ-style channel scaling using only weight statistics (no calibration).
-    Uses per-column weight magnitude as importance proxy.
-    """
-    attn = layer.self_attn
-
-    # Attention: scale input_layernorm ↔ q/k/v
-    qkv = [attn.q_proj, attn.k_proj, attn.v_proj]
-    w_max = torch.zeros(qkv[0].weight.shape[1], dtype=torch.float32)
-    for lin in qkv:
-        w_max = torch.max(w_max, lin.weight.data.float().abs().max(dim=0).values)
-    w_max.clamp_(min=1e-8)
-
-    s = (w_max / w_max.mean()).pow(alpha)
-    s.clamp_(min=0.8, max=1.25)
-
-    dtype = layer.input_layernorm.weight.dtype
-    s_dev = s.to(dtype=dtype)
-    layer.input_layernorm.weight.data.div_(s_dev)
-    for lin in qkv:
-        lin.weight.data.mul_(s_dev.unsqueeze(0).to(dtype=lin.weight.dtype))
-
-    # MLP: scale post_attention_layernorm ↔ gate/up
-    mlp = layer.mlp
-    gate_up = [mlp.gate_proj, mlp.up_proj]
-    w_max = torch.zeros(gate_up[0].weight.shape[1], dtype=torch.float32)
-    for lin in gate_up:
-        w_max = torch.max(w_max, lin.weight.data.float().abs().max(dim=0).values)
-    w_max.clamp_(min=1e-8)
-
-    s = (w_max / w_max.mean()).pow(alpha)
-    s.clamp_(min=0.8, max=1.25)
-
-    dtype = layer.post_attention_layernorm.weight.dtype
-    s_dev = s.to(dtype=dtype)
-    layer.post_attention_layernorm.weight.data.div_(s_dev)
-    for lin in gate_up:
-        lin.weight.data.mul_(s_dev.unsqueeze(0).to(dtype=lin.weight.dtype))
-
-
 def optimize_model(model_name: str, device: str = "cuda"):
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
@@ -66,11 +25,6 @@ def optimize_model(model_name: str, device: str = "cuda"):
         trust_remote_code=True,
         low_cpu_mem_usage=True,
     )
-
-    # Weight-only AWQ scaling (no calibration needed)
-    print("Applying AWQ scaling...")
-    for layer in model.model.layers:
-        awq_scale_layer_weight_only(layer)
 
     # Quantize with torchao int4 HQQ
     print("Quantizing...")
@@ -88,9 +42,9 @@ def optimize_model(model_name: str, device: str = "cuda"):
         gc.collect()
         torch.cuda.empty_cache()
 
-    # Prompt lookup for speculative decoding
+    # Prompt lookup — try 512 for maximum speculative batching
     is_llama = "llama" in model_name.lower()
-    model.generation_config.prompt_lookup_num_tokens = 64 if is_llama else 256
+    model.generation_config.prompt_lookup_num_tokens = 64 if is_llama else 512
 
     print("Done.")
     return model, tokenizer
