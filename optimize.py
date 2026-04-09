@@ -26,13 +26,10 @@ def optimize_model(model_name: str, device: str = "cuda"):
         low_cpu_mem_usage=True,
     )
 
-    # Quantize with torchao int4 HQQ
-    print("Quantizing...")
-    from torchao.quantization import quantize_, Int4WeightOnlyConfig
-    config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1)
-
-    # Tie embed_tokens and lm_head to save ~0.27 GB VRAM
-    model.lm_head.weight = model.model.embed_tokens.weight
+    # Try Float8 activation + Int4 weight
+    print("Quantizing with FP8+Int4...")
+    from torchao.quantization import quantize_, Float8DynamicActivationInt4WeightConfig
+    config = Float8DynamicActivationInt4WeightConfig()
 
     model.model.embed_tokens.to(device)
     model.model.norm.to(device)
@@ -45,7 +42,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
         gc.collect()
         torch.cuda.empty_cache()
 
-    # Prompt lookup — try 512 for maximum speculative batching
+    # Prompt lookup for speculative decoding
     is_llama = "llama" in model_name.lower()
     model.generation_config.prompt_lookup_num_tokens = 64 if is_llama else 256
 
