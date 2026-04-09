@@ -122,3 +122,7 @@ Score ~4.0 (varies 3.6-4.1 from speedup noise): HQQ int4 gs=128 + prompt_lookup=
 12. inner_k_tiles in TensorCoreTiledLayout (2/4/8) makes no measurable difference
 13. Removing per-layer gc.collect()/empty_cache() is safe and saves ~5s optimization time
 14. Score noise is significant: Llama ±11%, Mistral ±14% — due to speedup variance in baseline
+15. TF32 (allow_tf32) gives marginal ~4% tps improvement on Mistral, negligible on Llama
+16. Post-quant LayerNorm fine-tuning via loss.backward() is blocked by missing int4pack_mm derivative
+17. fp32 LayerNorm weights cause dtype mismatch (float vs bfloat16) with int4 layers
+18. Quantized KV cache (HQQ 4-bit) has no effect for sequences under ~1K tokens
