@@ -103,12 +103,28 @@ def tile_packed_weights(w_packed, scales, out_features, in_features, tile_m=TILE
 # ============================================================
 
 def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS):
+    """MSE-optimal scale: grid search over scale factors to minimize quantization error."""
     w = weight.float()
     out_feat, in_feat = w.shape
     n_groups = in_feat // group_size
+    half = 2 ** bits // 2
+
     w_grouped = w[:, :n_groups * group_size].reshape(out_feat, n_groups, group_size)
     absmax = w_grouped.abs().amax(dim=2).clamp(min=1e-8)
-    return absmax / (2 ** bits // 2)
+
+    best_scales = absmax / half
+    best_mse = torch.full((out_feat, n_groups), float('inf'), device=w.device)
+
+    for ratio in [0.70, 0.75, 0.80, 0.85, 0.90, 0.925, 0.95, 0.975, 1.0]:
+        s = absmax * ratio / half
+        w_q = torch.round(w_grouped / s.unsqueeze(2)).clamp(-half, half - 1)
+        w_deq = w_q * s.unsqueeze(2)
+        mse = (w_grouped - w_deq).pow(2).mean(dim=2)
+        better = mse < best_mse
+        best_mse = torch.where(better, mse, best_mse)
+        best_scales = torch.where(better, s, best_scales)
+
+    return best_scales
 
 
 def quantize_weight(weight, scales, group_size=GROUP_SIZE, bits=BITS):
