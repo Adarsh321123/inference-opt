@@ -34,16 +34,18 @@ def optimize_model(model_name: str, device: str = "cuda"):
     model.model.embed_tokens.to(device)
     model.model.norm.to(device)
     model.model.rotary_emb.to(device)
-
-    # Quantize lm_head too (saves ~0.8 GB VRAM)
     model.lm_head.to(device)
-    quantize_(model.lm_head, config)
 
     for layer in model.model.layers:
         layer.to(device)
         quantize_(layer, config)
         gc.collect()
         torch.cuda.empty_cache()
+
+    # Quantize lm_head AFTER all layers (avoid temporary buffer VRAM spike)
+    quantize_(model.lm_head, config)
+    gc.collect()
+    torch.cuda.empty_cache()
 
     # Prompt lookup for speculative decoding
     is_llama = "llama" in model_name.lower()
