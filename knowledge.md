@@ -40,11 +40,13 @@ To beat HQQ (quality 0.90 Llama, 0.96 Mistral), you must write the algorithm you
 4. **Fused dequant+matvec**: Slower than dequant+cuBLAS.
 5. **BLOCK_K=256 or BLOCK_M=256**: Register pressure kills speed.
 6. **Triton autotune**: No significant speed improvement over hand-tuned.
+7. **Asymmetric quantization**: Hurt quality, slowed inference, 27min quant time.
+8. **num_warps=8**: 32% slower than num_warps=4 for memory-bound dequant kernel.
 
-### Speed Bottleneck
-Dequant writes M*K*2 bytes + cuBLAS reads M*K*2 bytes = 2x baseline traffic.
-Speed is ~0.6-0.8x baseline. HQQ's fused CUDA kernels avoid this.
-Triton can't match cuBLAS for matmul quality.
+### Speed Notes
+- num_warps=4 is CRITICAL (32% faster than num_warps=8)
+- Speed varies 29-38 tok/s between runs (GPU thermal state, Triton cache)
+- With num_warps=4 and warm cache, speed reaches ~1.0x baseline via prompt_lookup
 
 ### Key Findings from All Rounds
 - prompt_lookup essential: 64 for Llama, 256 for Mistral
