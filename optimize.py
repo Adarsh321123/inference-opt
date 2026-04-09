@@ -108,7 +108,7 @@ def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS, h_diag=None):
     best_scale = base_scale.clone()
     best_mse = torch.full_like(base_scale, float('inf'))
 
-    for mult in [0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00]:
+    for mult in [0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00]:
         trial_scale = base_scale * mult
         w_scaled = w_grouped / trial_scale.unsqueeze(2)
         w_int = torch.round(w_scaled).clamp(-half, half - 1)
@@ -221,7 +221,7 @@ def collect_activation_stats(model, calib_data, device="cuda:0"):
 
     model.eval()
     with torch.no_grad():
-        for input_ids in calib_data[:32]:
+        for input_ids in calib_data[:64]:
             try:
                 model(input_ids.to(device))
             except Exception:
