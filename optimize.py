@@ -146,24 +146,18 @@ class QuantizedLinear(nn.Module):
         else:
             self.bias = None
 
-    def _dequant_bf16(self):
-        """Dequantize tiled int4 weights to bf16 on-the-fly."""
-        # w_tiled: [n_tiles, groups, tile_m, HALF_GS] uint8
-        # s_tiled: [n_tiles, groups, tile_m] float16
+    def _dequant(self, dtype=torch.bfloat16):
+        """Dequantize tiled int4 weights on-the-fly."""
         wt = self.w_tiled
-        lo = ((wt & 0xF).to(torch.int8) - 8).to(torch.float16)
-        hi = (((wt >> 4) & 0xF).to(torch.int8) - 8).to(torch.float16)
+        lo = ((wt & 0xF).to(torch.int8) - 8).to(dtype)
+        hi = (((wt >> 4) & 0xF).to(torch.int8) - 8).to(dtype)
 
-        # Interleave lo/hi → [n_tiles, groups, tile_m, GROUP_SIZE]
-        w_int = torch.empty(*wt.shape[:-1], HALF_GS * 2, dtype=torch.float16, device=wt.device)
+        w_int = torch.empty(*wt.shape[:-1], HALF_GS * 2, dtype=dtype, device=wt.device)
         w_int[..., 0::2] = lo
         w_int[..., 1::2] = hi
 
-        # Apply scales and reshape to [out_features, in_features]
-        w_float = w_int * self.s_tiled.unsqueeze(-1)
-        # Permute back: [n_tiles, groups, tile_m, GS] → [n_tiles, tile_m, groups, GS]
-        w_float = w_float.permute(0, 2, 1, 3).reshape(self.out_features, self.in_features)
-        return w_float
+        w_float = w_int * self.s_tiled.unsqueeze(-1).to(dtype)
+        return w_float.permute(0, 2, 1, 3).reshape(self.out_features, self.in_features)
 
     def forward(self, x):
         orig_shape = x.shape
@@ -183,8 +177,8 @@ class QuantizedLinear(nn.Module):
             output = output.to(x.dtype)
         else:
             # Dequant + cuBLAS: handles prefill/perplexity efficiently
-            w_bf16 = self._dequant_bf16()
-            output = x_flat.to(torch.float16) @ w_bf16.t()
+            w_deq = self._dequant(x.dtype)
+            output = x_flat @ w_deq.t()
 
         if self.bias is not None:
             output = output + self.bias
