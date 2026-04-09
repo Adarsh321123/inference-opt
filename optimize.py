@@ -52,6 +52,11 @@ def optimize_model(model_name: str, device: str = "cuda"):
     gc.collect()
     torch.cuda.empty_cache()
 
+    # Convert LayerNorm weights to fp32 for higher precision
+    for name, module in model.named_modules():
+        if 'norm' in name.lower() and hasattr(module, 'weight'):
+            module.weight.data = module.weight.data.float()
+
     # Prompt lookup: speculative n-gram decoding
     model.generation_config.prompt_lookup_num_tokens = 256
 
