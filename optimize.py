@@ -47,8 +47,8 @@ def optimize_model(model_name: str, device: str = "cuda"):
     for layer in model.model.layers:
         layer.to(device)
         quantize_(layer, config)
-        gc.collect()
-        torch.cuda.empty_cache()
+    gc.collect()
+    torch.cuda.empty_cache()
 
     # Prompt lookup: speculative n-gram decoding
     model.generation_config.prompt_lookup_num_tokens = 256
