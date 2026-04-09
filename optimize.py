@@ -10,6 +10,7 @@ import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 torch.backends.cudnn.benchmark = True
+torch.set_float32_matmul_precision('high')
 
 GROUP_SIZE = 128
 
@@ -26,10 +27,10 @@ def optimize_model(model_name: str, device: str = "cuda"):
         low_cpu_mem_usage=True,
     )
 
-    # Try Float8 activation + Int4 weight
-    print("Quantizing with FP8+Int4...")
-    from torchao.quantization import quantize_, Float8DynamicActivationInt4WeightConfig
-    config = Float8DynamicActivationInt4WeightConfig()
+    # Quantize with torchao int4 HQQ
+    print("Quantizing...")
+    from torchao.quantization import quantize_, Int4WeightOnlyConfig
+    config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1)
 
     model.model.embed_tokens.to(device)
     model.model.norm.to(device)
