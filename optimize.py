@@ -1,83 +1,29 @@
 """
-LLM Inference Optimization — HQQ Int4 + LayerNorm Fine-tuning
-===============================================================
+LLM Inference Optimization — HQQ Int4 Pipeline
+================================================
 THIS IS THE FILE THE AGENT MODIFIES. Everything is fair game.
 
-After HQQ quantization, fine-tune LayerNorm weights (the only remaining
-float parameters) to compensate for quantization error. Uses calibration
-data for layer-wise output matching.
+Round 4 conclusion from 35+ experiments:
+- HQQ int4 gs=128 + prompt_lookup=256 is the optimal pipeline
+- Weight transforms (AWQ, clipping, bias correction) hurt HQQ quality
+- Post-quant fine-tuning blocked (no backward through int4pack)
+- Int4 is SLOWER than FP16 at batch=1; prompt_lookup is essential
+- The simplest pipeline consistently gives the best results
 """
 
 import gc
 import torch
-import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 torch.backends.cudnn.benchmark = True
 
 GROUP_SIZE = 128
-FINETUNE_STEPS = 50
-FINETUNE_LR = 1e-4
-
-
-def load_calibration_data(tokenizer, n_samples=8, seq_len=512):
-    """Load calibration samples from WikiText-2."""
-    from datasets import load_dataset
-    ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
-    texts = [t for t in ds["text"] if len(t.strip()) > 200][:n_samples * 2]
-    encodings = []
-    for text in texts:
-        tokens = tokenizer(text, return_tensors="pt", truncation=True, max_length=seq_len)
-        if tokens.input_ids.shape[1] >= 64:
-            encodings.append(tokens.input_ids)
-        if len(encodings) >= n_samples:
-            break
-    return encodings
-
-
-def finetune_layernorms(model, calib_data, device, n_steps=FINETUNE_STEPS, lr=FINETUNE_LR):
-    """
-    Fine-tune LayerNorm weights to minimize perplexity on calibration data.
-    Only optimizes the RMSNorm/LayerNorm weights — all quantized weights frozen.
-    """
-    # Collect trainable parameters (only layernorm weights)
-    trainable = []
-    for name, param in model.named_parameters():
-        if 'layernorm' in name.lower() or 'norm' in name.lower():
-            param.requires_grad_(True)
-            trainable.append(param)
-        else:
-            param.requires_grad_(False)
-
-    if not trainable:
-        print("  No trainable parameters found")
-        return
-
-    print(f"  Fine-tuning {len(trainable)} LayerNorm parameters...")
-    optimizer = torch.optim.Adam(trainable, lr=lr)
-
-    model.train()
-    for step in range(n_steps):
-        total_loss = 0.0
-        for input_ids in calib_data[:4]:
-            input_ids = input_ids.to(device)
-            outputs = model(input_ids, labels=input_ids)
-            loss = outputs.loss
-            loss.backward()
-            total_loss += loss.item()
-        optimizer.step()
-        optimizer.zero_grad()
-
-    model.eval()
-    for param in trainable:
-        param.requires_grad_(False)
-
-    print(f"  Final loss: {total_loss / len(calib_data[:4]):.4f}")
 
 
 def optimize_model(model_name: str, device: str = "cuda"):
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
+    # Load bf16 on CPU — avoid GPU memory spike
     print("Loading model bf16 on CPU...")
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
@@ -87,28 +33,22 @@ def optimize_model(model_name: str, device: str = "cuda"):
         low_cpu_mem_usage=True,
     )
 
-    # Quantize with torchao int4 HQQ
+    # torchao Int4WeightOnly with HQQ quantization
     print("Quantizing...")
     from torchao.quantization import quantize_, Int4WeightOnlyConfig
     config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1)
 
+    # Move non-quantizable layers to GPU
     model.model.embed_tokens.to(device)
     model.model.norm.to(device)
     if hasattr(model.model, 'rotary_emb'):
         model.model.rotary_emb.to(device)
     model.lm_head.to(device)
 
+    # Stream each transformer layer: CPU → GPU, quantize on GPU
     for layer in model.model.layers:
         layer.to(device)
         quantize_(layer, config)
-    gc.collect()
-    torch.cuda.empty_cache()
-    torch.cuda.reset_peak_memory_stats()
-
-    # Fine-tune LayerNorm weights to compensate for quantization error
-    print("Fine-tuning LayerNorm weights...")
-    calib_data = load_calibration_data(tokenizer)
-    finetune_layernorms(model, calib_data, device)
     gc.collect()
     torch.cuda.empty_cache()
 
