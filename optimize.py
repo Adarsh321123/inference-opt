@@ -107,18 +107,27 @@ def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS, h_diag=None):
 
     best_scale = base_scale.clone()
     best_mse = torch.full_like(base_scale, float('inf'))
+    best_mult = torch.ones_like(base_scale)
 
-    for mult in [0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00]:
-        trial_scale = base_scale * mult
-        w_scaled = w_grouped / trial_scale.unsqueeze(2)
-        w_int = torch.round(w_scaled).clamp(-half, half - 1)
-        w_deq = w_int * trial_scale.unsqueeze(2)
-        error = (w_grouped - w_deq) ** 2
-        weighted_mse = (error * h).sum(dim=2)
+    def _try(m):
+        nonlocal best_scale, best_mse, best_mult
+        ts = base_scale * m
+        ws = w_grouped / ts.unsqueeze(2)
+        wi = torch.round(ws).clamp(-half, half - 1)
+        wd = wi * ts.unsqueeze(2)
+        wm = ((w_grouped - wd) ** 2 * h).sum(dim=2)
+        b = wm < best_mse
+        best_mse = torch.where(b, wm, best_mse)
+        best_scale = torch.where(b, ts, best_scale)
+        best_mult = torch.where(b, m, best_mult)
 
-        better = weighted_mse < best_mse
-        best_mse = torch.where(better, weighted_mse, best_mse)
-        best_scale = torch.where(better, trial_scale, best_scale)
+    # Coarse search
+    for m in [0.60, 0.70, 0.80, 0.90, 1.00]:
+        _try(torch.full_like(base_scale, m))
+
+    # Fine refinement ±0.05
+    for off in [-0.04, -0.02, 0.02, 0.04]:
+        _try((best_mult + off).clamp(0.3, 1.1))
 
     return best_scale
 
@@ -291,6 +300,8 @@ def optimize_model(model_name: str, device: str = "cuda"):
     print("Quantizing...")
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):
+            if name == "lm_head":
+                continue
             parent_name = ".".join(name.split(".")[:-1])
             child_name = name.split(".")[-1]
             parent = model.get_submodule(parent_name) if parent_name else model
