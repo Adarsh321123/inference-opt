@@ -53,5 +53,14 @@ def optimize_model(model_name: str, device: str = "cuda"):
     # Prompt lookup: speculative n-gram decoding
     model.generation_config.prompt_lookup_num_tokens = 256
 
+    # Quantized KV cache to reduce memory during generation
+    model.generation_config.cache_implementation = "quantized"
+    model.generation_config.cache_config = {
+        "backend": "HQQ",
+        "nbits": 4,
+        "q_group_size": 64,
+        "residual_length": 128,
+    }
+
     print("Done.")
     return model, tokenizer
