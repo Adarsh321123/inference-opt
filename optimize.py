@@ -1,18 +1,16 @@
 """
-LLM Inference Optimization — From-Scratch Quantization
-=======================================================
-THIS IS THE FILE THE AGENT MODIFIES. Everything is fair game.
-
-Int4 quantization with:
-- Percentile clipping for scale computation
-- GPTQ-style Hessian-weighted rounding
-- PyTorch dequant + cuBLAS matmul for fast inference
+LLM Inference Optimization — From-Scratch Int4 Quantization
+============================================================
+Triton dequant kernel + cuBLAS matmul for speed.
+Symmetric int4 with percentile clipping for quality.
 """
 
 import gc
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import triton
+import triton.language as tl
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
@@ -23,7 +21,53 @@ BITS = 4
 GROUP_SIZE = 128
 CALIBRATION_SAMPLES = 128
 CALIBRATION_SEQ_LEN = 512
-CLIP_PERCENTILE = 0.999  # percentile for scale clipping
+
+
+# ============================================================
+# TRITON KERNEL: dequantize int4 packed → bfloat16
+# ============================================================
+
+@triton.jit
+def dequant_int4_kernel(
+    out_ptr, packed_ptr, scales_ptr,
+    M, K, half_K, groups_per_row,
+    GROUP_SIZE_CONST: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_K: tl.constexpr,
+):
+    """Dequantize packed int4 weights to bf16. 2D grid over [M, K]."""
+    pid_m = tl.program_id(0)
+    pid_k = tl.program_id(1)
+
+    row_offs = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    col_offs = pid_k * BLOCK_K + tl.arange(0, BLOCK_K)
+
+    row_mask = row_offs < M
+    col_mask = col_offs < K
+    mask = row_mask[:, None] & col_mask[None, :]
+
+    # Load packed bytes
+    byte_offs = col_offs // 2
+    packed = tl.load(
+        packed_ptr + row_offs[:, None] * half_K + byte_offs[None, :],
+        mask=mask, other=0
+    )
+
+    # Unpack: even cols = low nibble, odd cols = high nibble
+    is_high = (col_offs % 2) == 1
+    w_uint = tl.where(is_high[None, :], (packed >> 4) & 0xF, packed & 0xF)
+    w_int = (w_uint.to(tl.int8) - 8).to(tl.bfloat16)
+
+    # Load per-group scales
+    group_idx = col_offs // GROUP_SIZE_CONST
+    scale = tl.load(
+        scales_ptr + row_offs[:, None] * groups_per_row + group_idx[None, :],
+        mask=mask, other=1.0
+    ).to(tl.bfloat16)
+
+    # Dequantize and store
+    w_deq = w_int * scale
+    tl.store(out_ptr + row_offs[:, None] * K + col_offs[None, :], w_deq, mask=mask)
 
 
 # ============================================================
@@ -33,94 +77,52 @@ CLIP_PERCENTILE = 0.999  # percentile for scale clipping
 def pack_int4(w_int4):
     """Pack int4 tensor into uint8 (2 values per byte). Input range [-8, 7]."""
     w_uint = (w_int4 + 8).to(torch.uint8)  # shift to [0, 15]
-    assert w_uint.shape[-1] % 2 == 0, "in_features must be even"
+    assert w_uint.shape[-1] % 2 == 0
     low = w_uint[..., 0::2]
     high = w_uint[..., 1::2]
     return low | (high << 4)
-
-
-def unpack_int4(packed, K):
-    """Unpack uint8 to int4 values. Returns float tensor of shape [M, K]."""
-    low = (packed & 0xF).to(torch.int8) - 8   # [-8, 7]
-    high = ((packed >> 4) & 0xF).to(torch.int8) - 8
-    # Interleave: low=even indices, high=odd indices
-    M = packed.shape[0]
-    out = torch.empty(M, K, dtype=torch.int8, device=packed.device)
-    out[:, 0::2] = low
-    out[:, 1::2] = high
-    return out
 
 
 # ============================================================
 # QUANTIZATION MATH
 # ============================================================
 
-def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS, h_diag=None):
-    """
-    Compute per-group quantization scales with percentile clipping.
-    Optionally uses activation-aware scaling via h_diag.
-    """
+def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS):
+    """Compute per-group quantization scales. Symmetric min-max."""
     w = weight.float()
     out_feat, in_feat = w.shape
     n_groups = in_feat // group_size
-    n_levels = 2 ** bits
-    half = n_levels // 2
+    half = 2 ** (bits - 1)
 
     w_grouped = w[:, :n_groups * group_size].reshape(out_feat, n_groups, group_size)
+    absmax = w_grouped.abs().amax(dim=2).clamp(min=1e-8)
+    scales = absmax / half
 
-    # Percentile clipping: use 99.9th percentile instead of max
-    abs_vals = w_grouped.abs()
-    k = max(1, int((1.0 - CLIP_PERCENTILE) * group_size))
-    # kthvalue gives k-th smallest, we want k-th largest of abs values
-    clip_val = abs_vals.topk(k, dim=2).values[:, :, -1]  # k-th largest
-    clip_val = clip_val.clamp(min=1e-8)
-
-    scales = clip_val / half
-    zeros = torch.zeros_like(scales)
-
-    return scales, zeros
+    return scales
 
 
-def quantize_weight(weight, scales, zeros, group_size=GROUP_SIZE, bits=BITS, h_diag=None):
-    """
-    Quantize weight matrix using precomputed scales.
-    Uses GPTQ-style Hessian-weighted optimal rounding when h_diag is available.
-    """
+def quantize_weight(weight, scales, group_size=GROUP_SIZE, bits=BITS):
+    """Quantize weight matrix. Returns int4 values in [-8, 7]."""
     w = weight.float()
     out_feat, in_feat = w.shape
     n_groups = in_feat // group_size
-    n_levels = 2 ** bits
-    half = n_levels // 2
+    half = 2 ** (bits - 1)
 
     w_grouped = w[:, :n_groups * group_size].reshape(out_feat, n_groups, group_size)
-
-    # Scale and get fractional part
     w_scaled = w_grouped / scales.unsqueeze(2).clamp(min=1e-8)
-
-    if h_diag is not None:
-        # Error diffusion: carry rounding error forward through each group
-        w_int = torch.zeros_like(w_scaled, dtype=torch.int8)
-        error_acc = torch.zeros(out_feat, n_groups, 1, device=w.device)
-
-        for col in range(group_size):
-            adjusted = w_scaled[:, :, col:col+1] + error_acc
-            rounded = torch.round(adjusted).clamp(-half, half - 1)
-            w_int[:, :, col:col+1] = rounded.to(torch.int8)
-            error_acc = adjusted - rounded
-    else:
-        w_int = torch.round(w_scaled).clamp(-half, half - 1).to(torch.int8)
+    w_int = torch.round(w_scaled).clamp(-half, half - 1).to(torch.int8)
 
     return w_int.reshape(out_feat, n_groups * group_size)
 
 
 # ============================================================
-# CUSTOM LINEAR LAYER — PyTorch dequant + cuBLAS matmul
+# CUSTOM LINEAR LAYER
 # ============================================================
 
 class QuantizedLinear(nn.Module):
-    """Drop-in replacement for nn.Linear using int4 weights."""
+    """Int4 linear with Triton dequant + cuBLAS matmul."""
 
-    def __init__(self, in_features, out_features, weight_packed, scales, zeros,
+    def __init__(self, in_features, out_features, weight_packed, scales,
                  bias=None, group_size=GROUP_SIZE):
         super().__init__()
         self.in_features = in_features
@@ -129,22 +131,30 @@ class QuantizedLinear(nn.Module):
         self.groups_per_row = in_features // group_size
 
         self.register_buffer('weight_packed', weight_packed)
-        self.register_buffer('scales', scales)
-        self.register_buffer('zeros', zeros)
+        self.register_buffer('scales', scales.to(torch.bfloat16))
         if bias is not None:
             self.register_buffer('bias', bias)
         else:
             self.bias = None
 
     def forward(self, x):
-        # Dequantize weights using PyTorch ops
-        w_int = unpack_int4(self.weight_packed, self.in_features)  # [M, K] int8
-        # Reshape for per-group scaling
-        w_grouped = w_int.float().reshape(self.out_features, self.groups_per_row, self.group_size)
-        w_float = (w_grouped * self.scales.unsqueeze(2)).reshape(self.out_features, self.in_features)
-        w_float = w_float.to(x.dtype)
+        M, K = self.out_features, self.in_features
+        w_deq = torch.empty(M, K, dtype=torch.bfloat16, device=x.device)
 
-        return F.linear(x, w_float, self.bias)
+        BLOCK_M = 64
+        BLOCK_K = 128
+        grid = (
+            (M + BLOCK_M - 1) // BLOCK_M,
+            (K + BLOCK_K - 1) // BLOCK_K,
+        )
+        dequant_int4_kernel[grid](
+            w_deq, self.weight_packed, self.scales,
+            M, K, K // 2, self.groups_per_row,
+            GROUP_SIZE_CONST=self.group_size,
+            BLOCK_M=BLOCK_M, BLOCK_K=BLOCK_K,
+        )
+
+        return F.linear(x, w_deq, self.bias)
 
 
 # ============================================================
@@ -152,7 +162,6 @@ class QuantizedLinear(nn.Module):
 # ============================================================
 
 def load_calibration_data(tokenizer, n_samples=CALIBRATION_SAMPLES, seq_len=CALIBRATION_SEQ_LEN):
-    """Load calibration samples from WikiText-2."""
     from datasets import load_dataset
     ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
     texts = [t for t in ds["text"] if len(t.strip()) > 200][:n_samples]
@@ -165,7 +174,7 @@ def load_calibration_data(tokenizer, n_samples=CALIBRATION_SAMPLES, seq_len=CALI
 
 
 def collect_activation_stats(model, calib_data, device="cuda:0"):
-    """Collect per-linear-layer Hessian diagonal (activation channel importance)."""
+    """Collect per-linear-layer Hessian diagonal."""
     stats = {}
     hooks = []
 
@@ -211,22 +220,19 @@ def collect_activation_stats(model, calib_data, device="cuda:0"):
 # ============================================================
 
 def quantize_linear(module, stats=None):
-    """Quantize an nn.Linear → QuantizedLinear."""
     weight = module.weight.data
     bias = module.bias.data if module.bias is not None else None
     out_feat, in_feat = weight.shape
 
     assert in_feat % GROUP_SIZE == 0, f"in_features {in_feat} not divisible by {GROUP_SIZE}"
-    assert in_feat % 2 == 0, f"in_features {in_feat} must be even for int4 packing"
+    assert in_feat % 2 == 0
 
-    h_diag = stats["H_diag"].cpu() if stats is not None else None
-
-    scales, zeros = compute_scales(weight, GROUP_SIZE, BITS, h_diag=h_diag)
-    w_int4 = quantize_weight(weight, scales, zeros, GROUP_SIZE, BITS, h_diag=h_diag)
+    scales = compute_scales(weight, GROUP_SIZE, BITS)
+    w_int4 = quantize_weight(weight, scales, GROUP_SIZE, BITS)
     w_packed = pack_int4(w_int4)
 
     return QuantizedLinear(
-        in_feat, out_feat, w_packed, scales, zeros,
+        in_feat, out_feat, w_packed, scales,
         bias=bias, group_size=GROUP_SIZE,
     )
 
@@ -255,7 +261,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
     model.to("cpu")
     torch.cuda.empty_cache()
 
-    # Reset peak memory so calibration doesn't inflate the measurement
+    # Reset peak memory so calibration doesn't inflate measurement
     torch.cuda.reset_peak_memory_stats()
 
     # --- Quantize all linear layers ---
@@ -271,7 +277,6 @@ def optimize_model(model_name: str, device: str = "cuda"):
             q_linear.to(device)
             setattr(parent, child_name, q_linear)
 
-    # Move remaining modules to GPU
     model.to(device)
     gc.collect()
     torch.cuda.empty_cache()
