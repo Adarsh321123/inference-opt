@@ -16,6 +16,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 torch.backends.cudnn.benchmark = True
+# Allow torch.compile to skip unsupported ops instead of failing
+torch._dynamo.config.suppress_errors = True
 
 GROUP_SIZE = 128
 
@@ -51,6 +53,9 @@ def optimize_model(model_name: str, device: str = "cuda"):
         quantize_(layer, config)
     gc.collect()
     torch.cuda.empty_cache()
+
+    # Try fullgraph compile with dynamo error suppression
+    model = torch.compile(model)
 
     # Prompt lookup: speculative n-gram decoding
     model.generation_config.prompt_lookup_num_tokens = 256
