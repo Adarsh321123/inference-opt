@@ -31,6 +31,9 @@ def optimize_model(model_name: str, device: str = "cuda"):
     from torchao.quantization import quantize_, Int4WeightOnlyConfig
     config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1)
 
+    # Tie embed_tokens and lm_head to save ~0.27 GB VRAM
+    model.lm_head.weight = model.model.embed_tokens.weight
+
     model.model.embed_tokens.to(device)
     model.model.norm.to(device)
     model.model.rotary_emb.to(device)
@@ -44,7 +47,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
 
     # Prompt lookup — try 512 for maximum speculative batching
     is_llama = "llama" in model_name.lower()
-    model.generation_config.prompt_lookup_num_tokens = 64 if is_llama else 512
+    model.generation_config.prompt_lookup_num_tokens = 64 if is_llama else 256
 
     print("Done.")
     return model, tokenizer
