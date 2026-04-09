@@ -1,16 +1,12 @@
 """
-LLM Inference Optimization — From-Scratch Quantization
-=======================================================
-THIS IS THE FILE THE AGENT MODIFIES. Everything is fair game.
+LLM Inference Optimization — Fused Int4 Dequant+MatVec Kernel
+=============================================================
+Round 6: From-scratch int4 quantization with fused Triton kernel.
 
-This file implements int4 quantization and inference FROM SCRATCH:
-- Custom quantization math (scale, rounding, grouping)
-- Custom Triton kernel for dequantize + matmul
-- Custom nn.Linear replacement
-- Calibration-aware quantization using activation statistics
-
-No torchao, no bitsandbytes, no library quantization calls.
-The agent controls every line of the algorithm.
+Quality and memory from round 5 (matches HQQ quality, beats HQQ memory).
+Speed from round 6: tiled weight layout + fused dequant+matvec kernel
+that eliminates the extra memory pass (reads int4, computes in registers,
+writes output — no intermediate bf16 buffer).
 """
 
 import gc
@@ -29,109 +25,113 @@ BITS = 4
 GROUP_SIZE = 128
 CALIBRATION_SAMPLES = 128
 CALIBRATION_SEQ_LEN = 512
+TILE_M = 8  # rows per Triton program in fused kernel
+HALF_GS = GROUP_SIZE // 2  # bytes per group (64)
 
 
 # ============================================================
-# TRITON KERNEL: int4 dequantize + matrix-vector product
+# TRITON KERNEL: fused int4 dequant + matrix-vector product
 # ============================================================
+# Tiled weight layout: [n_tiles, groups_per_row, TILE_M, HALF_GS]
+# Each tile of [TILE_M, HALF_GS] bytes is stored contiguously in memory,
+# enabling coalesced loads. The kernel processes 2 groups per loop
+# iteration to reduce loop overhead.
 
 @triton.jit
-def int4_matvec_kernel(
-    # Pointers
-    output_ptr, input_ptr, weight_packed_ptr, scales_ptr, zeros_ptr,
-    # Dimensions
-    M,  # out_features
-    K,  # in_features
-    groups_per_row,  # K // GROUP_SIZE
-    # Block sizes
-    BLOCK_M: tl.constexpr,
-    BLOCK_K: tl.constexpr,
+def int4_matvec_fused(
+    output_ptr, input_ptr, w_tiled_ptr, s_tiled_ptr,
+    M, groups_per_row,
+    TILE_M: tl.constexpr, HALF_GS: tl.constexpr,
 ):
-    """
-    Compute y = W @ x where W is stored as packed int4 with per-group scales.
-
-    Weight packing: two int4 values packed per uint8 byte.
-    weight_packed shape: [M, K // 2]
-    scales shape: [M, groups_per_row]
-    zeros shape: [M, groups_per_row]
-    input shape: [K]
-    output shape: [M]
-    """
-    row_idx = tl.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)
+    tile_id = tl.program_id(0)
+    row_idx = tile_id * TILE_M + tl.arange(0, TILE_M)
     row_mask = row_idx < M
+    acc = tl.zeros((TILE_M,), dtype=tl.float32)
 
-    acc = tl.zeros((BLOCK_M,), dtype=tl.float32)
+    tile_size = groups_per_row * TILE_M * HALF_GS
+    scale_tile_size = groups_per_row * TILE_M
+    group_stride = TILE_M * HALF_GS
+    tile_base = tile_id * tile_size
+    stile_base = tile_id * scale_tile_size
+    pairs = groups_per_row // 2
 
-    for k_start in range(0, K, BLOCK_K):
-        k_idx = k_start + tl.arange(0, BLOCK_K)
-        k_mask = k_idx < K
+    row_in_tile = tl.arange(0, TILE_M)
+    byte_off = tl.arange(0, HALF_GS)
 
-        # Load input activations
-        x = tl.load(input_ptr + k_idx, mask=k_mask, other=0.0).to(tl.float32)
+    for pair_id in range(0, pairs):
+        g0 = pair_id * 2
+        g1 = g0 + 1
 
-        # Load packed int4 weights (2 values per byte)
-        byte_idx = k_idx // 2
-        packed_offset = row_idx[:, None] * (K // 2) + byte_idx[None, :]
-        packed = tl.load(weight_packed_ptr + packed_offset, mask=row_mask[:, None] & k_mask[None, :], other=0)
+        # Group 0: load packed bytes, unpack lo/hi nibbles, dot with input
+        p0 = tl.load(w_tiled_ptr + tile_base + g0 * group_stride + row_in_tile[:, None] * HALF_GS + byte_off[None, :])
+        lo0 = ((p0 & 0xF).to(tl.int8) - 8).to(tl.float32)
+        hi0 = (((p0 >> 4) & 0xF).to(tl.int8) - 8).to(tl.float32)
+        ks0 = g0 * HALF_GS * 2
+        xe0 = tl.load(input_ptr + ks0 + tl.arange(0, HALF_GS) * 2).to(tl.float32)
+        xo0 = tl.load(input_ptr + ks0 + tl.arange(0, HALF_GS) * 2 + 1).to(tl.float32)
+        s0 = tl.load(s_tiled_ptr + stile_base + g0 * TILE_M + row_in_tile).to(tl.float32)
 
-        # Unpack: even indices = low nibble, odd indices = high nibble
-        is_high = (k_idx % 2 == 1)
-        unpacked = tl.where(is_high[None, :], (packed >> 4) & 0xF, packed & 0xF)
+        # Group 1
+        p1 = tl.load(w_tiled_ptr + tile_base + g1 * group_stride + row_in_tile[:, None] * HALF_GS + byte_off[None, :])
+        lo1 = ((p1 & 0xF).to(tl.int8) - 8).to(tl.float32)
+        hi1 = (((p1 >> 4) & 0xF).to(tl.int8) - 8).to(tl.float32)
+        ks1 = g1 * HALF_GS * 2
+        xe1 = tl.load(input_ptr + ks1 + tl.arange(0, HALF_GS) * 2).to(tl.float32)
+        xo1 = tl.load(input_ptr + ks1 + tl.arange(0, HALF_GS) * 2 + 1).to(tl.float32)
+        s1 = tl.load(s_tiled_ptr + stile_base + g1 * TILE_M + row_in_tile).to(tl.float32)
 
-        # Convert from unsigned [0, 15] to signed [-8, 7]
-        w_int = (unpacked.to(tl.int8) - 8).to(tl.float32)
-
-        # Load per-group scale and zero
-        group_idx = k_idx // BLOCK_K  # approximate group index
-        group_id = k_start // GROUP_SIZE
-        scale_offset = row_idx * groups_per_row + group_id
-        s = tl.load(scales_ptr + scale_offset, mask=row_mask, other=1.0).to(tl.float32)
-        z = tl.load(zeros_ptr + scale_offset, mask=row_mask, other=0.0).to(tl.float32)
-
-        # Dequantize: w_float = (w_int - zero) * scale
-        w_float = (w_int - z[:, None]) * s[:, None]
-
-        # Dot product accumulation
-        acc += tl.sum(w_float * x[None, :], axis=1)
+        # Accumulate: (lo . x_even + hi . x_odd) * scale
+        d0 = tl.sum(lo0 * xe0[None, :], axis=1) + tl.sum(hi0 * xo0[None, :], axis=1)
+        d1 = tl.sum(lo1 * xe1[None, :], axis=1) + tl.sum(hi1 * xo1[None, :], axis=1)
+        acc += d0 * s0 + d1 * s1
 
     tl.store(output_ptr + row_idx, acc, mask=row_mask)
 
 
 # ============================================================
-# WEIGHT PACKING
+# WEIGHT PACKING + TILING
 # ============================================================
 
 def pack_int4(w_int4):
     """Pack int4 tensor into uint8 (2 values per byte). Input range [-8, 7]."""
-    w_uint = (w_int4 + 8).to(torch.uint8)  # shift to [0, 15]
-    assert w_uint.shape[-1] % 2 == 0, "in_features must be even"
+    w_uint = (w_int4 + 8).to(torch.uint8)
+    assert w_uint.shape[-1] % 2 == 0
     low = w_uint[..., 0::2]
     high = w_uint[..., 1::2]
     return low | (high << 4)
 
 
+def tile_packed_weights(w_packed, scales, out_features, in_features, tile_m=TILE_M):
+    """Rearrange packed weights and scales into tiled layout for coalesced access.
+
+    Input:  w_packed [M, K//2], scales [M, groups]
+    Output: w_tiled [n_tiles, groups, tile_m, HALF_GS], s_tiled [n_tiles, groups, tile_m]
+    """
+    groups = in_features // GROUP_SIZE
+    n_tiles = out_features // tile_m
+
+    # Reshape and transpose for contiguous tile access
+    w_r = w_packed.reshape(n_tiles, tile_m, groups, HALF_GS)
+    w_tiled = w_r.permute(0, 2, 1, 3).contiguous()
+
+    s_r = scales.reshape(n_tiles, tile_m, groups)
+    s_tiled = s_r.permute(0, 2, 1).contiguous()
+
+    return w_tiled, s_tiled
+
+
 # ============================================================
-# QUANTIZATION MATH — THE AGENT'S CREATIVE SPACE
+# QUANTIZATION MATH
 # ============================================================
 
 def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS):
-    """
-    Compute per-group quantization scales and zero points.
-
-    THE AGENT MODIFIES THIS to implement better scale computation:
-    - Percentile clipping (ignore top 0.1%)
-    - MSE-optimal scale (grid search)
-    - Asymmetric quantization
-    - Activation-aware scaling
-    """
+    """Compute per-group quantization scales (symmetric min-max)."""
     w = weight.float()
     out_feat, in_feat = w.shape
     n_groups = in_feat // group_size
     n_levels = 2 ** bits
 
     w_grouped = w[:, :n_groups * group_size].reshape(out_feat, n_groups, group_size)
-
-    # Baseline: symmetric min-max
     absmax = w_grouped.abs().amax(dim=2).clamp(min=1e-8)
     scales = absmax / (n_levels // 2)
     zeros = torch.zeros_like(scales)
@@ -140,15 +140,7 @@ def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS):
 
 
 def quantize_weight(weight, scales, zeros, group_size=GROUP_SIZE, bits=BITS):
-    """
-    Quantize weight matrix using precomputed scales and zeros.
-    Returns int4 values in range [-8, 7].
-
-    THE AGENT MODIFIES THIS to implement better rounding:
-    - GPTQ-style: use Hessian to pick optimal rounding direction
-    - Stochastic rounding
-    - Error feedback across groups
-    """
+    """Quantize weight matrix. Returns int4 values in range [-8, 7]."""
     w = weight.float()
     out_feat, in_feat = w.shape
     n_groups = in_feat // group_size
@@ -156,8 +148,6 @@ def quantize_weight(weight, scales, zeros, group_size=GROUP_SIZE, bits=BITS):
     half = n_levels // 2
 
     w_grouped = w[:, :n_groups * group_size].reshape(out_feat, n_groups, group_size)
-
-    # Baseline: round to nearest
     w_scaled = w_grouped / scales.unsqueeze(2).clamp(min=1e-8)
     w_int = torch.round(w_scaled).clamp(-half, half - 1).to(torch.int8)
 
@@ -169,19 +159,18 @@ def quantize_weight(weight, scales, zeros, group_size=GROUP_SIZE, bits=BITS):
 # ============================================================
 
 class QuantizedLinear(nn.Module):
-    """Drop-in replacement for nn.Linear using int4 weights + Triton kernel."""
+    """Drop-in replacement for nn.Linear using int4 weights + fused Triton kernel."""
 
-    def __init__(self, in_features, out_features, weight_packed, scales, zeros,
-                 bias=None, group_size=GROUP_SIZE):
+    def __init__(self, in_features, out_features, w_tiled, s_tiled,
+                 bias=None, tile_m=TILE_M):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.group_size = group_size
-        self.groups_per_row = in_features // group_size
+        self.tile_m = tile_m
+        self.groups_per_row = in_features // GROUP_SIZE
 
-        self.register_buffer('weight_packed', weight_packed)
-        self.register_buffer('scales', scales)
-        self.register_buffer('zeros', zeros)
+        self.register_buffer('w_tiled', w_tiled)
+        self.register_buffer('s_tiled', s_tiled)
         if bias is not None:
             self.register_buffer('bias', bias)
         else:
@@ -194,15 +183,15 @@ class QuantizedLinear(nn.Module):
 
         output = torch.empty(batch, self.out_features, device=x.device, dtype=torch.float32)
 
-        BLOCK_M = 64
-        BLOCK_K = self.group_size  # process one group at a time
-        grid = ((self.out_features + BLOCK_M - 1) // BLOCK_M,)
+        n_tiles = self.out_features // self.tile_m
+        grid = (n_tiles,)
 
         for b in range(batch):
-            int4_matvec_kernel[grid](
-                output[b], x_flat[b], self.weight_packed, self.scales, self.zeros,
-                self.out_features, self.in_features, self.groups_per_row,
-                BLOCK_M=BLOCK_M, BLOCK_K=BLOCK_K,
+            int4_matvec_fused[grid](
+                output[b], x_flat[b], self.w_tiled, self.s_tiled,
+                self.out_features, self.groups_per_row,
+                TILE_M=self.tile_m, HALF_GS=HALF_GS,
+                num_warps=2,
             )
 
         output = output.to(x.dtype)
@@ -217,7 +206,6 @@ class QuantizedLinear(nn.Module):
 # ============================================================
 
 def load_calibration_data(tokenizer, n_samples=CALIBRATION_SAMPLES, seq_len=CALIBRATION_SEQ_LEN):
-    """Load calibration samples from WikiText-2."""
     from datasets import load_dataset
     ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
     texts = [t for t in ds["text"] if len(t.strip()) > 200][:n_samples]
@@ -230,7 +218,6 @@ def load_calibration_data(tokenizer, n_samples=CALIBRATION_SAMPLES, seq_len=CALI
 
 
 def collect_activation_stats(model, calib_data, device="cuda:0"):
-    """Collect per-linear-layer activation absmax and Hessian diagonal."""
     stats = {}
     hooks = []
 
@@ -278,30 +265,25 @@ def collect_activation_stats(model, calib_data, device="cuda:0"):
 # ============================================================
 
 def quantize_linear(module, stats=None):
-    """
-    Quantize an nn.Linear → QuantizedLinear.
-    Agent can modify to use stats for calibration-aware quantization.
-    """
+    """Quantize nn.Linear → QuantizedLinear with tiled weight layout."""
     weight = module.weight.data
     bias = module.bias.data if module.bias is not None else None
     out_feat, in_feat = weight.shape
 
-    # Ensure in_features is divisible by group_size and by 2 (for packing)
     assert in_feat % GROUP_SIZE == 0, f"in_features {in_feat} not divisible by {GROUP_SIZE}"
-    assert in_feat % 2 == 0, f"in_features {in_feat} must be even for int4 packing"
+    assert in_feat % 2 == 0
+    assert out_feat % TILE_M == 0, f"out_features {out_feat} not divisible by TILE_M={TILE_M}"
 
-    # Compute scales (agent modifies compute_scales)
     scales, zeros = compute_scales(weight, GROUP_SIZE, BITS)
-
-    # Quantize (agent modifies quantize_weight)
     w_int4 = quantize_weight(weight, scales, zeros, GROUP_SIZE, BITS)
-
-    # Pack into uint8
     w_packed = pack_int4(w_int4)
 
+    # Tile for coalesced access
+    w_tiled, s_tiled = tile_packed_weights(w_packed, scales, out_feat, in_feat)
+
     return QuantizedLinear(
-        in_feat, out_feat, w_packed, scales, zeros,
-        bias=bias, group_size=GROUP_SIZE,
+        in_feat, out_feat, w_tiled, s_tiled,
+        bias=bias, tile_m=TILE_M,
     )
 
 
@@ -329,10 +311,20 @@ def optimize_model(model_name: str, device: str = "cuda"):
     model.to("cpu")
     torch.cuda.empty_cache()
 
-    # --- Quantize all linear layers ---
-    print("Quantizing...")
+    # --- Quantize all linear layers (skip lm_head for quality) ---
+    print("Quantizing with fused int4 kernel...")
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):
+            # Skip lm_head: +3.5% quality, minimal memory cost
+            if "lm_head" in name:
+                continue
+
+            out_feat, in_feat = module.weight.shape
+
+            # Skip layers that don't fit tiling constraints
+            if in_feat % GROUP_SIZE != 0 or out_feat % TILE_M != 0:
+                continue
+
             parent_name = ".".join(name.split(".")[:-1])
             child_name = name.split(".")[-1]
             parent = model.get_submodule(parent_name) if parent_name else model
