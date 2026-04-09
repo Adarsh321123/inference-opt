@@ -126,7 +126,7 @@ def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS, h_diag=None):
         _try(torch.full_like(base_scale, m))
 
     # Fine refinement ±0.05
-    for off in [-0.04, -0.02, 0.02, 0.04]:
+    for off in [-0.05, -0.03, -0.01, 0.01, 0.03, 0.05]:
         _try((best_mult + off).clamp(0.3, 1.1))
 
     return best_scale

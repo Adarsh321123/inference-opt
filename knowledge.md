@@ -1,6 +1,6 @@
 # knowledge
 
-Accumulated insights from 170+ experiments across 4 rounds. Read this before every session.
+Accumulated insights from 180+ experiments across 5 rounds. Read this before every session.
 
 ## Rounds 1-4 Summary
 
@@ -13,38 +13,42 @@ for the weight distribution. Transforms interfere with it.
 Key lesson: calling library functions limits you to library quality.
 To beat HQQ (quality 0.90 Llama, 0.96 Mistral), you must write the algorithm yourself.
 
-## Round 5: From-Scratch Quantization
+## Round 5: From-Scratch Quantization Results
 
-optimize.py now implements int4 quantization FROM SCRATCH:
-- compute_scales(): per-group scale computation (agent modifies)
-- quantize_weight(): rounding logic (agent modifies)
-- Triton kernel: int4 dequant + matvec (agent modifies)
-- QuantizedLinear: drop-in nn.Linear replacement
-- Calibration: activation absmax + Hessian diagonal per channel
+### Best Scores
+- Llama: 1.8941 (quality 0.90, speedup 0.81, memory 2.61)
+- Mistral: 1.8207 (quality 0.97, speedup 0.56, memory 3.33)
 
-The baseline is naive symmetric RTN. Quality bars to beat:
-- HQQ: Llama 0.9021, Mistral 0.9590
-- AWQ/GPTQ (published): ~0.97 for both
+### Architecture
+- Triton dequant kernel: packed int4 → bf16 (BLOCK_M=128, BLOCK_K=128)
+- cuBLAS matmul via F.linear on the dequantized bf16 tensor
+- Calibration: 64 samples of WikiText-2, Hessian diagonal per channel
 
-## Key Findings from All Rounds
+### What Worked
+1. **Hessian-weighted MSE-optimal scale search**: Grid search over scale multipliers
+   (0.60-1.00), picking the one that minimizes Hessian-weighted reconstruction error.
+2. **Two-stage refinement**: Coarse search (5 points) then fine search (±0.04).
+3. **Skip lm_head quantization**: +3.5% quality retained. Small memory cost.
+4. **BLOCK_M=128 for Triton dequant**: Sweet spot. 64 was slower, 256 much slower.
+5. **Peak memory reset after calibration**: Ensures calibration doesn't inflate measurement.
+6. **64 calibration samples**: Better Hessian estimates than 32.
 
-- prompt_lookup_num_tokens is essential: int4 is SLOWER than FP16 at batch=1 without it
-- prompt_lookup sweet spot: 64 for Llama, 256 for Mistral
-- Outlier weights are sacred — never clip them
-- Quality at 4-bit varies 85-97% across methods — the MATH matters
+### What Failed
+1. **AWQ-style per-channel scaling**: Destroyed quality at alpha=0.5.
+2. **Error diffusion rounding**: Hurt quality (columns aren't spatially correlated).
+3. **GROUP_SIZE=64**: Quality +3% but speed -28%. Net score decrease.
+4. **Fused dequant+matvec**: Slower than dequant+cuBLAS.
+5. **BLOCK_K=256 or BLOCK_M=256**: Register pressure kills speed.
+6. **Triton autotune**: No significant speed improvement over hand-tuned.
+
+### Speed Bottleneck
+Dequant writes M*K*2 bytes + cuBLAS reads M*K*2 bytes = 2x baseline traffic.
+Speed is ~0.6-0.8x baseline. HQQ's fused CUDA kernels avoid this.
+Triton can't match cuBLAS for matmul quality.
+
+### Key Findings from All Rounds
+- prompt_lookup essential: 64 for Llama, 256 for Mistral
+- lm_head is most quality-sensitive layer
+- Quality at 4-bit: 85-97%, algorithm matters
 - Mistral retains quality better under 4-bit than Llama
-- Calibration data from WikiText-2 works well for general models
-
-## Techniques to Implement and Beat
-
-- GPTQ: use H_diag (Hessian diagonal) to pick optimal rounding direction.
-  For each weight: compare round-up vs round-down error weighted by H_diag.
-  This is ~10 lines of code change in quantize_weight().
-- Asymmetric quantization: use actual min/max instead of symmetric absmax.
-  Captures skewed distributions better.
-- Percentile clipping: compute scale from 99.9th percentile instead of max.
-  Reduces scale, improves precision for bulk of weights.
-- MSE-optimal scale: binary search for scale that minimizes reconstruction MSE.
-- Error feedback: propagate rounding error to subsequent columns (like GPTQ).
-- Activation-aware scaling: weight scale by channel activation magnitude (AWQ-style).
-  But implement it IN the scale computation, not as a pre-transform.
+- Phi-3-small requires pytest (not in deps, can't run)
