@@ -11,6 +11,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 torch.backends.cudnn.benchmark = True
 
+# Disable cuBLASLt — hurts Mistral by ~15% (round 3 finding)
+import os
+os.environ.setdefault("DISABLE_ADDMM_CUDA_LT", "1")
+
 GROUP_SIZE = 128
 
 
