@@ -3,14 +3,12 @@ LLM Inference Optimization — Fused Int4 Dequant+MatVec Kernel
 =============================================================
 Round 6: From-scratch int4 quantization with fused Triton kernel.
 
-Quality and memory from round 5 (matches HQQ quality, beats HQQ memory).
-Speed from round 6: tiled weight layout + fused dequant+matvec kernel
-that eliminates the extra memory pass (reads int4, computes in registers,
-writes output — no intermediate bf16 buffer).
+For batch=1 (generation): fused kernel reads int4, dequants in registers,
+computes matvec, writes output — no intermediate bf16 buffer.
+For batch>1 (prefill/perplexity): dequant to bf16, use cuBLAS matmul.
 """
 
 import gc
-import math
 import torch
 import torch.nn as nn
 import triton
@@ -23,8 +21,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 # ============================================================
 BITS = 4
 GROUP_SIZE = 128
-CALIBRATION_SAMPLES = 128
-CALIBRATION_SEQ_LEN = 512
 TILE_M = 8  # rows per Triton program in fused kernel
 HALF_GS = GROUP_SIZE // 2  # bytes per group (64)
 
@@ -32,17 +28,13 @@ HALF_GS = GROUP_SIZE // 2  # bytes per group (64)
 # ============================================================
 # TRITON KERNEL: fused int4 dequant + matrix-vector product
 # ============================================================
-# Tiled weight layout: [n_tiles, groups_per_row, TILE_M, HALF_GS]
-# Each tile of [TILE_M, HALF_GS] bytes is stored contiguously in memory,
-# enabling coalesced loads. The kernel processes 2 groups per loop
-# iteration to reduce loop overhead.
-
 @triton.jit
 def int4_matvec_fused(
     output_ptr, input_ptr, w_tiled_ptr, s_tiled_ptr,
     M, groups_per_row,
     TILE_M: tl.constexpr, HALF_GS: tl.constexpr,
 ):
+    """Fused int4 dequant+matvec for batch=1. Tiled weight layout."""
     tile_id = tl.program_id(0)
     row_idx = tile_id * TILE_M + tl.arange(0, TILE_M)
     row_mask = row_idx < M
@@ -62,7 +54,7 @@ def int4_matvec_fused(
         g0 = pair_id * 2
         g1 = g0 + 1
 
-        # Group 0: load packed bytes, unpack lo/hi nibbles, dot with input
+        # Group 0
         p0 = tl.load(w_tiled_ptr + tile_base + g0 * group_stride + row_in_tile[:, None] * HALF_GS + byte_off[None, :])
         lo0 = ((p0 & 0xF).to(tl.int8) - 8).to(tl.float32)
         hi0 = (((p0 >> 4) & 0xF).to(tl.int8) - 8).to(tl.float32)
@@ -80,7 +72,6 @@ def int4_matvec_fused(
         xo1 = tl.load(input_ptr + ks1 + tl.arange(0, HALF_GS) * 2 + 1).to(tl.float32)
         s1 = tl.load(s_tiled_ptr + stile_base + g1 * TILE_M + row_in_tile).to(tl.float32)
 
-        # Accumulate: (lo . x_even + hi . x_odd) * scale
         d0 = tl.sum(lo0 * xe0[None, :], axis=1) + tl.sum(hi0 * xo0[None, :], axis=1)
         d1 = tl.sum(lo1 * xe1[None, :], axis=1) + tl.sum(hi1 * xo1[None, :], axis=1)
         acc += d0 * s0 + d1 * s1
@@ -95,63 +86,39 @@ def int4_matvec_fused(
 def pack_int4(w_int4):
     """Pack int4 tensor into uint8 (2 values per byte). Input range [-8, 7]."""
     w_uint = (w_int4 + 8).to(torch.uint8)
-    assert w_uint.shape[-1] % 2 == 0
-    low = w_uint[..., 0::2]
-    high = w_uint[..., 1::2]
-    return low | (high << 4)
+    return w_uint[..., 0::2] | (w_uint[..., 1::2] << 4)
 
 
 def tile_packed_weights(w_packed, scales, out_features, in_features, tile_m=TILE_M):
-    """Rearrange packed weights and scales into tiled layout for coalesced access.
-
-    Input:  w_packed [M, K//2], scales [M, groups]
-    Output: w_tiled [n_tiles, groups, tile_m, HALF_GS], s_tiled [n_tiles, groups, tile_m]
-    """
+    """Rearrange into tiled layout [n_tiles, groups, tile_m, HALF_GS]."""
     groups = in_features // GROUP_SIZE
     n_tiles = out_features // tile_m
-
-    # Reshape and transpose for contiguous tile access
-    w_r = w_packed.reshape(n_tiles, tile_m, groups, HALF_GS)
-    w_tiled = w_r.permute(0, 2, 1, 3).contiguous()
-
-    s_r = scales.reshape(n_tiles, tile_m, groups)
-    s_tiled = s_r.permute(0, 2, 1).contiguous()
-
+    w_tiled = w_packed.reshape(n_tiles, tile_m, groups, HALF_GS).permute(0, 2, 1, 3).contiguous()
+    s_tiled = scales.reshape(n_tiles, tile_m, groups).permute(0, 2, 1).contiguous()
     return w_tiled, s_tiled
 
 
 # ============================================================
-# QUANTIZATION MATH
+# QUANTIZATION
 # ============================================================
 
 def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS):
-    """Compute per-group quantization scales (symmetric min-max)."""
     w = weight.float()
     out_feat, in_feat = w.shape
     n_groups = in_feat // group_size
-    n_levels = 2 ** bits
-
     w_grouped = w[:, :n_groups * group_size].reshape(out_feat, n_groups, group_size)
     absmax = w_grouped.abs().amax(dim=2).clamp(min=1e-8)
-    scales = absmax / (n_levels // 2)
-    zeros = torch.zeros_like(scales)
-
-    return scales, zeros
+    return absmax / (2 ** bits // 2)
 
 
-def quantize_weight(weight, scales, zeros, group_size=GROUP_SIZE, bits=BITS):
-    """Quantize weight matrix. Returns int4 values in range [-8, 7]."""
+def quantize_weight(weight, scales, group_size=GROUP_SIZE, bits=BITS):
     w = weight.float()
     out_feat, in_feat = w.shape
     n_groups = in_feat // group_size
-    n_levels = 2 ** bits
-    half = n_levels // 2
-
+    half = 2 ** bits // 2
     w_grouped = w[:, :n_groups * group_size].reshape(out_feat, n_groups, group_size)
     w_scaled = w_grouped / scales.unsqueeze(2).clamp(min=1e-8)
-    w_int = torch.round(w_scaled).clamp(-half, half - 1).to(torch.int8)
-
-    return w_int.reshape(out_feat, n_groups * group_size)
+    return torch.round(w_scaled).clamp(-half, half - 1).to(torch.int8).reshape(out_feat, n_groups * group_size)
 
 
 # ============================================================
@@ -159,7 +126,10 @@ def quantize_weight(weight, scales, zeros, group_size=GROUP_SIZE, bits=BITS):
 # ============================================================
 
 class QuantizedLinear(nn.Module):
-    """Drop-in replacement for nn.Linear using int4 weights + fused Triton kernel."""
+    """Drop-in nn.Linear replacement with int4 weights.
+    batch=1: fused Triton matvec kernel (fast, no intermediate buffer)
+    batch>1: dequant to bf16 + cuBLAS matmul (for prefill/perplexity)
+    """
 
     def __init__(self, in_features, out_features, w_tiled, s_tiled,
                  bias=None, tile_m=TILE_M):
@@ -176,25 +146,46 @@ class QuantizedLinear(nn.Module):
         else:
             self.bias = None
 
+    def _dequant_bf16(self):
+        """Dequantize tiled int4 weights to bf16 on-the-fly."""
+        # w_tiled: [n_tiles, groups, tile_m, HALF_GS] uint8
+        # s_tiled: [n_tiles, groups, tile_m] float16
+        wt = self.w_tiled
+        lo = ((wt & 0xF).to(torch.int8) - 8).to(torch.float16)
+        hi = (((wt >> 4) & 0xF).to(torch.int8) - 8).to(torch.float16)
+
+        # Interleave lo/hi → [n_tiles, groups, tile_m, GROUP_SIZE]
+        w_int = torch.empty(*wt.shape[:-1], HALF_GS * 2, dtype=torch.float16, device=wt.device)
+        w_int[..., 0::2] = lo
+        w_int[..., 1::2] = hi
+
+        # Apply scales and reshape to [out_features, in_features]
+        w_float = w_int * self.s_tiled.unsqueeze(-1)
+        # Permute back: [n_tiles, groups, tile_m, GS] → [n_tiles, tile_m, groups, GS]
+        w_float = w_float.permute(0, 2, 1, 3).reshape(self.out_features, self.in_features)
+        return w_float
+
     def forward(self, x):
         orig_shape = x.shape
         x_flat = x.reshape(-1, self.in_features)
         batch = x_flat.shape[0]
 
-        output = torch.empty(batch, self.out_features, device=x.device, dtype=torch.float32)
-
-        n_tiles = self.out_features // self.tile_m
-        grid = (n_tiles,)
-
-        for b in range(batch):
-            int4_matvec_fused[grid](
-                output[b], x_flat[b], self.w_tiled, self.s_tiled,
+        if batch == 1:
+            # Fused kernel: fast path for generation
+            output = torch.empty(1, self.out_features, device=x.device, dtype=torch.float32)
+            n_tiles = self.out_features // self.tile_m
+            int4_matvec_fused[(n_tiles,)](
+                output[0], x_flat[0], self.w_tiled, self.s_tiled,
                 self.out_features, self.groups_per_row,
                 TILE_M=self.tile_m, HALF_GS=HALF_GS,
                 num_warps=2,
             )
+            output = output.to(x.dtype)
+        else:
+            # Dequant + cuBLAS: handles prefill/perplexity efficiently
+            w_bf16 = self._dequant_bf16()
+            output = x_flat.to(torch.float16) @ w_bf16.t()
 
-        output = output.to(x.dtype)
         if self.bias is not None:
             output = output + self.bias
 
@@ -202,89 +193,23 @@ class QuantizedLinear(nn.Module):
 
 
 # ============================================================
-# CALIBRATION
-# ============================================================
-
-def load_calibration_data(tokenizer, n_samples=CALIBRATION_SAMPLES, seq_len=CALIBRATION_SEQ_LEN):
-    from datasets import load_dataset
-    ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
-    texts = [t for t in ds["text"] if len(t.strip()) > 200][:n_samples]
-    encodings = []
-    for text in texts:
-        tokens = tokenizer(text, return_tensors="pt", truncation=True, max_length=seq_len)
-        if tokens.input_ids.shape[1] >= 64:
-            encodings.append(tokens.input_ids)
-    return encodings
-
-
-def collect_activation_stats(model, calib_data, device="cuda:0"):
-    stats = {}
-    hooks = []
-
-    def make_hook(name):
-        def hook_fn(module, inp, out):
-            x = inp[0].detach().float()
-            flat = x.reshape(-1, x.shape[-1])
-            if name not in stats:
-                n = flat.shape[-1]
-                stats[name] = {
-                    "absmax": torch.zeros(n, device=flat.device),
-                    "H_diag": torch.zeros(n, device=flat.device),
-                    "count": 0,
-                }
-            s = stats[name]
-            s["absmax"] = torch.max(s["absmax"], flat.abs().max(dim=0).values)
-            s["H_diag"] += (flat ** 2).sum(dim=0)
-            s["count"] += flat.shape[0]
-        return hook_fn
-
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
-            hooks.append(module.register_forward_hook(make_hook(name)))
-
-    model.eval()
-    with torch.no_grad():
-        for input_ids in calib_data[:32]:
-            try:
-                model(input_ids.to(device))
-            except Exception:
-                continue
-
-    for h in hooks:
-        h.remove()
-
-    for name in stats:
-        s = stats[name]
-        s["H_diag"] = s["H_diag"] / max(s["count"], 1)
-
-    return stats
-
-
-# ============================================================
 # QUANTIZE A LINEAR MODULE
 # ============================================================
 
-def quantize_linear(module, stats=None):
-    """Quantize nn.Linear → QuantizedLinear with tiled weight layout."""
+def quantize_linear(module):
     weight = module.weight.data
     bias = module.bias.data if module.bias is not None else None
     out_feat, in_feat = weight.shape
 
-    assert in_feat % GROUP_SIZE == 0, f"in_features {in_feat} not divisible by {GROUP_SIZE}"
-    assert in_feat % 2 == 0
-    assert out_feat % TILE_M == 0, f"out_features {out_feat} not divisible by TILE_M={TILE_M}"
+    if in_feat % GROUP_SIZE != 0 or out_feat % TILE_M != 0:
+        return None  # skip layers that don't fit
 
-    scales, zeros = compute_scales(weight, GROUP_SIZE, BITS)
-    w_int4 = quantize_weight(weight, scales, zeros, GROUP_SIZE, BITS)
+    scales = compute_scales(weight)
+    w_int4 = quantize_weight(weight, scales)
     w_packed = pack_int4(w_int4)
-
-    # Tile for coalesced access
     w_tiled, s_tiled = tile_packed_weights(w_packed, scales, out_feat, in_feat)
 
-    return QuantizedLinear(
-        in_feat, out_feat, w_tiled, s_tiled,
-        bias=bias, tile_m=TILE_M,
-    )
+    return QuantizedLinear(in_feat, out_feat, w_tiled, s_tiled, bias=bias)
 
 
 # ============================================================
@@ -303,43 +228,30 @@ def optimize_model(model_name: str, device: str = "cuda"):
         low_cpu_mem_usage=True,
     )
 
-    # --- Calibration ---
-    print("Collecting activation statistics...")
-    calib_data = load_calibration_data(tokenizer)
-    model.to(device)
-    act_stats = collect_activation_stats(model, calib_data, device)
-    model.to("cpu")
-    torch.cuda.empty_cache()
-
-    # --- Quantize all linear layers (skip lm_head for quality) ---
+    # Quantize all linear layers on CPU (no GPU needed for quantization)
     print("Quantizing with fused int4 kernel...")
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
-            # Skip lm_head: +3.5% quality, minimal memory cost
-            if "lm_head" in name:
-                continue
+    for name, module in list(model.named_modules()):
+        if not isinstance(module, nn.Linear):
+            continue
+        # Skip lm_head: +3.5% quality retention, minimal memory cost
+        if "lm_head" in name:
+            continue
 
-            out_feat, in_feat = module.weight.shape
+        q_linear = quantize_linear(module)
+        if q_linear is None:
+            continue
 
-            # Skip layers that don't fit tiling constraints
-            if in_feat % GROUP_SIZE != 0 or out_feat % TILE_M != 0:
-                continue
+        parent_name = ".".join(name.split(".")[:-1])
+        child_name = name.split(".")[-1]
+        parent = model.get_submodule(parent_name) if parent_name else model
+        setattr(parent, child_name, q_linear)
 
-            parent_name = ".".join(name.split(".")[:-1])
-            child_name = name.split(".")[-1]
-            parent = model.get_submodule(parent_name) if parent_name else model
-
-            stats = act_stats.get(name)
-            q_linear = quantize_linear(module, stats)
-            q_linear.to(device)
-            setattr(parent, child_name, q_linear)
-
-    # Move remaining modules to GPU
+    # Move to GPU
     model.to(device)
     gc.collect()
     torch.cuda.empty_cache()
 
-    # --- Inference config ---
+    # Inference config
     is_llama = "llama" in model_name.lower()
     model.generation_config.prompt_lookup_num_tokens = 64 if is_llama else 256
 
