@@ -43,12 +43,17 @@ torchao's quantize_() with use_hqq=True calls HQQ internally to compute int4 val
 3. Pack those values into the same torchao int4 format
 4. Get fast inference from the same tinygemm kernels
 
-The agent should explore torchao's internals: look at how quantize_() calls HQQ, what interface it expects, and how to inject custom quantization logic. The calibration infrastructure from round 4 is available (activation stats collection).
+CRITICAL from round 4: RTN (use_hqq=False) does NOT engage fast tinygemm kernels.
+RTN gives 1.01x speedup vs HQQ's 1.30x. So we MUST keep use_hqq=True.
 
-Techniques to implement:
-- GPTQ: use Hessian (X^T X) to find optimal rounding direction per weight. ~100 lines of core math.
-- Optimal brain quantization: second-order error minimization
-- Custom rounding: instead of round-to-nearest, use calibration data to pick the rounding direction that minimizes output error
-- Novel combinations
+Approach: monkey-patch HQQ's internal rounding function with custom math.
+1. Read torchao's source: `python -c "import torchao; print(torchao.__file__)"`
+2. Trace how Int4WeightOnlyConfig(use_hqq=True) triggers HQQ rounding
+3. Find the specific function that does rounding/scale computation
+4. Replace it with custom logic (GPTQ-style Hessian rounding, etc.)
+5. Call quantize_() normally — gets HQQ's fast kernel path + custom math
+
+The calibration collects Hessians (H = X^T X) stored in _layer_hessians global.
+The monkey-patched function can read these for GPTQ-style optimal rounding.
 
 Quality bars to beat: Llama 0.9021, Mistral 0.9590 (HQQ int4 gs=128).

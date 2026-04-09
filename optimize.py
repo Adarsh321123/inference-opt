@@ -3,25 +3,36 @@ LLM Inference Optimization — Custom Quantization Pipeline
 ==========================================================
 THIS IS THE FILE THE AGENT MODIFIES. Everything is fair game.
 
-Round 5 approach: REPLACE HQQ's quantization math, not work around it.
+Round 5 approach: monkey-patch HQQ's internal rounding with custom math.
 
-torchao's quantize_() pipeline:
-1. HQQ/RTN computes int4 values for each weight group
-2. Weights are packed into TensorCoreTiledLayout
-3. tinygemm kernels do fast int4 inference
+WHY: torchao's HQQ code path produces fast tinygemm inference (1.3x speedup).
+RTN does NOT (1.01x). So we MUST use the HQQ code path. But we want custom
+quantization math. Solution: find where HQQ does rounding inside torchao's
+source and replace that function with our own.
 
-We replace step 1 with custom math. Steps 2-3 stay the same.
-The agent writes better quantization functions that produce higher-quality
-int4 values than HQQ, using calibration data and novel algorithms.
+STEPS FOR THE AGENT:
+1. Find torchao's installed source. Start with:
+   python -c "import torchao; print(torchao.__file__)"
+   Then explore the quantization directory, especially:
+   - How Int4WeightOnlyConfig(use_hqq=True) triggers HQQ
+   - Where HQQ computes scales and rounds weights
+   - What function signature to match for the monkey-patch
 
-Two modes:
-- USE_CUSTOM_QUANTIZATION=True: custom math → dequantize → torchao RTN repack
-  (RTN on already-quantized weights preserves custom rounding decisions)
-- USE_CUSTOM_QUANTIZATION=False: plain HQQ (baseline to beat)
+2. Write a custom rounding/scale function that matches HQQ's interface
+   but uses better math (GPTQ-style Hessian rounding, MSE-optimal scale, etc.)
+
+3. Monkey-patch it BEFORE calling quantize_():
+   import torchao.some.internal.module as m
+   m.hqq_rounding_function = my_custom_function
+
+4. Call quantize_(layer, config) as normal — it uses HQQ's code path
+   (fast kernels) but with our custom rounding decisions.
+
+The calibration infrastructure below collects Hessians (H = X^T X) that
+the custom rounding function can use for GPTQ-style optimal rounding.
 """
 
 import gc
-import math
 import torch
 import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -34,7 +45,6 @@ BITS = 4
 GROUP_SIZE = 128
 CALIBRATION_SAMPLES = 128
 CALIBRATION_SEQ_LEN = 512
-USE_CUSTOM_QUANTIZATION = False  # Agent sets True when ready
 
 
 # ============================================================
@@ -56,8 +66,9 @@ def load_calibration_data(tokenizer, n_samples=CALIBRATION_SAMPLES, seq_len=CALI
 
 def collect_activation_stats(model, calib_data, device="cuda:0"):
     """
-    Run calibration data and collect per-linear-layer stats:
-    absmax, mean, std per channel, and Hessian H = X^T X for GPTQ.
+    Run calibration data and collect per-linear-layer Hessians (H = X^T X)
+    and activation channel statistics. The Hessian is used for GPTQ-style
+    optimal rounding: the error from rounding weight w_i is weighted by H_ii.
     """
     stats = {}
     hooks = []
@@ -70,13 +81,11 @@ def collect_activation_stats(model, calib_data, device="cuda:0"):
                 n = flat.shape[-1]
                 stats[name] = {
                     "absmax": torch.zeros(n, device=flat.device),
-                    "sq_sum": torch.zeros(n, device=flat.device),
                     "H": torch.zeros(n, n, device=flat.device),
                     "count": 0,
                 }
             s = stats[name]
             s["absmax"] = torch.max(s["absmax"], flat.abs().max(dim=0).values)
-            s["sq_sum"] += (flat ** 2).sum(dim=0)
             s["H"] += flat.T @ flat
             s["count"] += flat.shape[0]
         return hook_fn
@@ -98,87 +107,48 @@ def collect_activation_stats(model, calib_data, device="cuda:0"):
 
     for name in stats:
         s = stats[name]
-        cnt = max(s["count"], 1)
-        s["channel_var"] = s["sq_sum"] / cnt
-        s["H"] = s["H"] / cnt
-        del s["sq_sum"]
+        s["H"] = s["H"] / max(s["count"], 1)
 
     return stats
 
 
 # ============================================================
-# CUSTOM QUANTIZATION — THE AGENT'S CREATIVE SPACE
+# MONKEY-PATCH HQQ — THE AGENT'S CREATIVE SPACE
 # ============================================================
 
-def quantize_weight_matrix(weight, hessian=None, bits=BITS, group_size=GROUP_SIZE):
+# Global dict: the agent stores Hessians here so the monkey-patched
+# function can access them during quantize_().
+_layer_hessians = {}
+
+
+def patch_hqq_quantization():
     """
-    Quantize a weight matrix [out_features, in_features] to N-bit.
-    Returns dequantized weight (simulated quantization).
-    All ops are VECTORIZED — no Python loops over groups.
+    Find and replace HQQ's internal rounding function with custom math.
 
-    THIS IS THE CORE FUNCTION THE AGENT SHOULD MODIFY.
+    THE AGENT MUST IMPLEMENT THIS by:
+    1. Reading torchao's source to find HQQ's rounding logic
+    2. Writing a replacement that uses _layer_hessians for better rounding
+    3. Monkey-patching the function before quantize_() is called
 
-    Baseline: symmetric min-max with round-to-nearest (RTN).
+    EXAMPLE (agent should verify the actual function path):
 
-    The agent can implement:
-    - Asymmetric quantization: different range for pos/neg
-    - Percentile clipping: ignore top 0.1% when computing scale
-    - MSE-optimal scale: binary search for scale minimizing MSE
-    - GPTQ-style rounding: use Hessian diagonal to pick rounding
-      direction that minimizes output error per weight
-    - Error feedback across groups
-    - Non-uniform quantization grids
-    - Novel approaches combining the above
+    import torchao.prototype.hqq as hqq_module
+
+    original_quantize = hqq_module.some_quantize_function
+
+    def custom_quantize(weight, ...):
+        # Use Hessian for GPTQ-style optimal rounding:
+        # For each weight w_i, compare:
+        #   error_up   = (ceil(w_i/s)*s - w_i)^2 * H_ii
+        #   error_down = (floor(w_i/s)*s - w_i)^2 * H_ii
+        # Pick the direction with smaller error.
+        ...
+
+    hqq_module.some_quantize_function = custom_quantize
     """
-    w = weight.float()
-    out_feat, in_feat = w.shape
-    n_levels = 2 ** bits
-    half = n_levels // 2
-
-    # Trim to multiple of group_size
-    n_groups_per_row = in_feat // group_size
-    usable = n_groups_per_row * group_size
-    w_main = w[:, :usable]
-    w_remainder = w[:, usable:] if usable < in_feat else None
-
-    # Reshape: [out_feat, n_groups_per_row, group_size]
-    w_grouped = w_main.reshape(out_feat, n_groups_per_row, group_size)
-
-    # === SCALE COMPUTATION (vectorized over all groups) ===
-    # Baseline: symmetric min-max
-    absmax = w_grouped.abs().amax(dim=2, keepdim=True).clamp(min=1e-8)
-    scale = absmax / half
-
-    # === ROUNDING (vectorized) ===
-    # Baseline: round to nearest
-    w_scaled = w_grouped / scale
-    w_int = torch.round(w_scaled).clamp(-half, half - 1)
-
-    # === DEQUANTIZE ===
-    w_deq = (w_int * scale).reshape(out_feat, usable)
-
-    # Handle remainder (not quantized — kept at full precision)
-    if w_remainder is not None:
-        w_deq = torch.cat([w_deq, w_remainder], dim=1)
-
-    return w_deq.to(weight.dtype)
-
-
-def apply_custom_quantization(layer, layer_idx, act_stats):
-    """
-    Apply custom quantization to all linear modules in a layer.
-    Replaces weights with dequantized versions (custom rounding decisions).
-    """
-    for name, module in layer.named_modules():
-        if isinstance(module, nn.Linear):
-            stats_key = f"model.layers.{layer_idx}.{name}"
-            layer_stats = act_stats.get(stats_key)
-            hessian = layer_stats["H"] if layer_stats and "H" in layer_stats else None
-
-            w_deq = quantize_weight_matrix(
-                module.weight.data, hessian, BITS, GROUP_SIZE
-            )
-            module.weight.data = w_deq
+    # === BASELINE: No patch (plain HQQ) ===
+    # The agent replaces this with the actual monkey-patch.
+    pass
 
 
 # ============================================================
@@ -186,6 +156,8 @@ def apply_custom_quantization(layer, layer_idx, act_stats):
 # ============================================================
 
 def optimize_model(model_name: str, device: str = "cuda"):
+    global _layer_hessians
+
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
     print("Loading model bf16 on CPU...")
@@ -197,24 +169,24 @@ def optimize_model(model_name: str, device: str = "cuda"):
         low_cpu_mem_usage=True,
     )
 
-    # --- Calibration (only for custom quantization) ---
-    act_stats = {}
-    if USE_CUSTOM_QUANTIZATION:
-        print("Collecting activation statistics + Hessians...")
-        calib_data = load_calibration_data(tokenizer)
-        model.to(device)
-        act_stats = collect_activation_stats(model, calib_data, device)
-        model.to("cpu")
-        torch.cuda.empty_cache()
+    # --- Calibration ---
+    print("Collecting activation statistics + Hessians...")
+    calib_data = load_calibration_data(tokenizer)
+    model.to(device)
+    act_stats = collect_activation_stats(model, calib_data, device)
+    model.to("cpu")
+    torch.cuda.empty_cache()
 
-    # --- Quantization ---
+    # Store Hessians globally so monkey-patched function can access them
+    _layer_hessians = act_stats
+
+    # --- Monkey-patch HQQ (agent's creative space) ---
+    patch_hqq_quantization()
+
+    # --- Quantize with HQQ code path (fast tinygemm kernels) ---
     print("Quantizing...")
     from torchao.quantization import quantize_, Int4WeightOnlyConfig
-
-    # When custom=True: use RTN to repack (preserves custom rounding decisions)
-    # When custom=False: use HQQ (baseline to beat)
-    use_hqq = not USE_CUSTOM_QUANTIZATION
-    config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=use_hqq, version=1)
+    config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1)
 
     model.model.embed_tokens.to(device)
     model.model.norm.to(device)
@@ -224,12 +196,6 @@ def optimize_model(model_name: str, device: str = "cuda"):
 
     for i, layer in enumerate(model.model.layers):
         layer.to(device)
-
-        if USE_CUSTOM_QUANTIZATION:
-            # Custom quantize → dequantize (replaces weights with optimally-rounded bf16)
-            apply_custom_quantization(layer, i, act_stats)
-
-        # torchao packs into int4 format for fast tinygemm inference
         quantize_(layer, config)
         gc.collect()
         torch.cuda.empty_cache()
