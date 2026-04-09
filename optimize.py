@@ -103,7 +103,7 @@ def tile_packed_weights(w_packed, scales, out_features, in_features, tile_m=TILE
 # ============================================================
 
 def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS):
-    """MSE-optimal scale: grid search over scale factors to minimize quantization error."""
+    """MSE-optimal scale with fine grid search."""
     w = weight.float()
     out_feat, in_feat = w.shape
     n_groups = in_feat // group_size
@@ -115,7 +115,9 @@ def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS):
     best_scales = absmax / half
     best_mse = torch.full((out_feat, n_groups), float('inf'), device=w.device)
 
-    for ratio in [0.70, 0.75, 0.80, 0.85, 0.90, 0.925, 0.95, 0.975, 1.0]:
+    # Fine grid: 20 points from 0.5 to 1.0
+    for ratio_x100 in range(50, 101, 3):
+        ratio = ratio_x100 / 100.0
         s = absmax * ratio / half
         w_q = torch.round(w_grouped / s.unsqueeze(2)).clamp(-half, half - 1)
         w_deq = w_q * s.unsqueeze(2)
@@ -180,19 +182,20 @@ class QuantizedLinear(nn.Module):
         x_flat = x.reshape(-1, self.in_features)
         batch = x_flat.shape[0]
 
-        if batch == 1:
-            # Fused kernel: fast path for generation
-            output = torch.empty(1, self.out_features, device=x.device, dtype=torch.float32)
+        if batch <= 8:
+            # Fused kernel: fast for generation and prompt_lookup verification
+            output = torch.empty(batch, self.out_features, device=x.device, dtype=torch.float32)
             n_tiles = self.out_features // self.tile_m
-            int4_matvec_fused[(n_tiles,)](
-                output[0], x_flat[0], self.w_tiled, self.s_tiled,
-                self.out_features, self.groups_per_row,
-                TILE_M=self.tile_m, HALF_GS=HALF_GS,
-                num_warps=2,
-            )
+            for b in range(batch):
+                int4_matvec_fused[(n_tiles,)](
+                    output[b], x_flat[b], self.w_tiled, self.s_tiled,
+                    self.out_features, self.groups_per_row,
+                    TILE_M=self.tile_m, HALF_GS=HALF_GS,
+                    num_warps=2,
+                )
             output = output.to(x.dtype)
         else:
-            # Dequant + cuBLAS: handles prefill/perplexity efficiently
+            # Dequant + cuBLAS: handles prefill/perplexity with large batch
             w_deq = self._dequant(x.dtype)
             output = x_flat @ w_deq.t()
 
@@ -238,14 +241,30 @@ def optimize_model(model_name: str, device: str = "cuda"):
         low_cpu_mem_usage=True,
     )
 
-    # Quantize all linear layers on CPU (no GPU needed for quantization)
+    # Quantize linear layers, skipping sensitive ones for quality
     print("Quantizing with fused int4 kernel...")
+
+    # Find total number of transformer layers
+    n_layers = 0
+    for name, _ in model.named_modules():
+        if name.endswith(".self_attn"):
+            n_layers += 1
+    skip_first = 2
+    skip_last = 2
+
     for name, module in list(model.named_modules()):
         if not isinstance(module, nn.Linear):
             continue
-        # Skip lm_head: +3.5% quality retention, minimal memory cost
+        # Skip lm_head
         if "lm_head" in name:
             continue
+        # Skip first/last transformer layers for quality
+        import re
+        layer_match = re.search(r'layers\.(\d+)\.', name)
+        if layer_match:
+            layer_idx = int(layer_match.group(1))
+            if layer_idx < skip_first or layer_idx >= n_layers - skip_last:
+                continue
 
         q_linear = quantize_linear(module)
         if q_linear is None:
