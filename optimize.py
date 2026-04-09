@@ -34,9 +34,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
     # torchao Int4WeightOnly with HQQ quantization
     print("Quantizing...")
     from torchao.quantization import quantize_, Int4WeightOnlyConfig
-    from torchao.dtypes.uintx.tensor_core_tiled_layout import TensorCoreTiledLayout
-    layout = TensorCoreTiledLayout(inner_k_tiles=4)
-    config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1, layout=layout)
+    config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1)
 
     # Move non-quantizable layers to GPU
     model.model.embed_tokens.to(device)
@@ -54,7 +52,6 @@ def optimize_model(model_name: str, device: str = "cuda"):
 
     # Prompt lookup: speculative n-gram decoding
     model.generation_config.prompt_lookup_num_tokens = 256
-
 
     print("Done.")
     return model, tokenizer
