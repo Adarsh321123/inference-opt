@@ -87,8 +87,8 @@ def pack_int4(w_int4):
 # QUANTIZATION MATH
 # ============================================================
 
-def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS):
-    """Compute per-group quantization scales. Symmetric min-max."""
+def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS, h_diag=None):
+    """Compute per-group quantization scales. MSE-optimal when h_diag available."""
     w = weight.float()
     out_feat, in_feat = w.shape
     n_groups = in_feat // group_size
@@ -96,9 +96,31 @@ def compute_scales(weight, group_size=GROUP_SIZE, bits=BITS):
 
     w_grouped = w[:, :n_groups * group_size].reshape(out_feat, n_groups, group_size)
     absmax = w_grouped.abs().amax(dim=2).clamp(min=1e-8)
-    scales = absmax / half
+    base_scale = absmax / half
 
-    return scales
+    if h_diag is None:
+        return base_scale
+
+    # MSE-optimal scale search weighted by Hessian diagonal
+    h = h_diag[:n_groups * group_size].reshape(n_groups, group_size)
+    h = h.unsqueeze(0).expand(out_feat, -1, -1)
+
+    best_scale = base_scale.clone()
+    best_mse = torch.full_like(base_scale, float('inf'))
+
+    for mult in [0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00]:
+        trial_scale = base_scale * mult
+        w_scaled = w_grouped / trial_scale.unsqueeze(2)
+        w_int = torch.round(w_scaled).clamp(-half, half - 1)
+        w_deq = w_int * trial_scale.unsqueeze(2)
+        error = (w_grouped - w_deq) ** 2
+        weighted_mse = (error * h).sum(dim=2)
+
+        better = weighted_mse < best_mse
+        best_mse = torch.where(better, weighted_mse, best_mse)
+        best_scale = torch.where(better, trial_scale, best_scale)
+
+    return best_scale
 
 
 def quantize_weight(weight, scales, group_size=GROUP_SIZE, bits=BITS):
@@ -227,7 +249,8 @@ def quantize_linear(module, stats=None):
     assert in_feat % GROUP_SIZE == 0, f"in_features {in_feat} not divisible by {GROUP_SIZE}"
     assert in_feat % 2 == 0
 
-    scales = compute_scales(weight, GROUP_SIZE, BITS)
+    h_diag = stats["H_diag"].cpu() if stats is not None else None
+    scales = compute_scales(weight, GROUP_SIZE, BITS, h_diag=h_diag)
     w_int4 = quantize_weight(weight, scales, GROUP_SIZE, BITS)
     w_packed = pack_int4(w_int4)
 
