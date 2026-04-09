@@ -3,11 +3,12 @@ LLM Inference Optimization — HQQ Int4 Pipeline
 ================================================
 THIS IS THE FILE THE AGENT MODIFIES. Everything is fair game.
 
-Round 4 conclusion from 35+ experiments:
+Round 4 conclusion from 40+ experiments:
 - HQQ int4 gs=128 + prompt_lookup=256 is the optimal pipeline
 - Weight transforms (AWQ, clipping, bias correction) hurt HQQ quality
 - Post-quant fine-tuning blocked (no backward through int4pack)
 - Int4 is SLOWER than FP16 at batch=1; prompt_lookup is essential
+- torch.compile provides no benefit (warmup cost outweighs gains)
 - The simplest pipeline consistently gives the best results
 """
 
@@ -16,8 +17,6 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 torch.backends.cudnn.benchmark = True
-# Allow torch.compile to skip unsupported ops instead of failing
-torch._dynamo.config.suppress_errors = True
 
 GROUP_SIZE = 128
 
@@ -53,9 +52,6 @@ def optimize_model(model_name: str, device: str = "cuda"):
         quantize_(layer, config)
     gc.collect()
     torch.cuda.empty_cache()
-
-    # Try fullgraph compile with dynamo error suppression
-    model = torch.compile(model)
 
     # Prompt lookup: speculative n-gram decoding
     model.generation_config.prompt_lookup_num_tokens = 256
