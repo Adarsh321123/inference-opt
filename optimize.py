@@ -11,10 +11,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 torch.backends.cudnn.benchmark = True
 
-# Disable cuBLASLt — hurts Mistral by ~15% (round 3 finding)
-import os
-os.environ.setdefault("DISABLE_ADDMM_CUDA_LT", "1")
-
 GROUP_SIZE = 128
 
 
@@ -49,6 +45,8 @@ def optimize_model(model_name: str, device: str = "cuda"):
     # Prompt lookup for speculative decoding
     is_llama = "llama" in model_name.lower()
     model.generation_config.prompt_lookup_num_tokens = 64 if is_llama else 256
+    # Static cache for pre-allocated KV memory — avoids dynamic allocation overhead
+    model.generation_config.cache_implementation = "static"
 
     print("Done.")
     return model, tokenizer
