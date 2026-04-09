@@ -1,6 +1,6 @@
 """
-LLM Inference Optimization — HQQ Int4 + Quantized lm_head
-==========================================================
+LLM Inference Optimization — HQQ Int4 + max-autotune
+=====================================================
 THIS IS THE FILE THE AGENT MODIFIES. Everything is fair game.
 """
 
@@ -42,10 +42,8 @@ def optimize_model(model_name: str, device: str = "cuda"):
         gc.collect()
         torch.cuda.empty_cache()
 
-    # Quantize lm_head AFTER all layers (avoid temporary buffer VRAM spike)
-    quantize_(model.lm_head, config)
-    gc.collect()
-    torch.cuda.empty_cache()
+    # torch.compile with max-autotune for kernel optimization
+    model.forward = torch.compile(model.forward, mode="max-autotune")
 
     # Prompt lookup for speculative decoding
     is_llama = "llama" in model_name.lower()
