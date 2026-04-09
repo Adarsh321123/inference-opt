@@ -35,7 +35,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
     print("Quantizing...")
     from torchao.quantization import quantize_, Int4WeightOnlyConfig
     from torchao.dtypes.uintx.tensor_core_tiled_layout import TensorCoreTiledLayout
-    layout = TensorCoreTiledLayout(inner_k_tiles=16)
+    layout = TensorCoreTiledLayout(inner_k_tiles=4)
     config = Int4WeightOnlyConfig(group_size=GROUP_SIZE, use_hqq=True, version=1, layout=layout)
 
     # Move non-quantizable layers to GPU
