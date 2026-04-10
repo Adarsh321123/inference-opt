@@ -325,7 +325,7 @@ def optimize_model(model_name: str, device: str = "cuda"):
 
     # --- Inference config ---
     is_llama = "llama" in model_name.lower()
-    model.generation_config.prompt_lookup_num_tokens = 64 if is_llama else 256
+    model.generation_config.prompt_lookup_num_tokens = 128 if is_llama else 256
 
     print("Done.")
     return model, tokenizer
