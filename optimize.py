@@ -167,25 +167,19 @@ class QuantizedLinear(nn.Module):
             self.register_buffer('bias', bias)
         else:
             self.bias = None
+        self._grid = ((out_features + 127) // 128, (in_features + 127) // 128)
+        self._half_K = in_features // 2
 
     def forward(self, x):
         M, K = self.out_features, self.in_features
         w_deq = torch.empty(M, K, dtype=torch.bfloat16, device=x.device)
-
-        BLOCK_M = 128
-        BLOCK_K = 128
-        grid = (
-            (M + BLOCK_M - 1) // BLOCK_M,
-            (K + BLOCK_K - 1) // BLOCK_K,
-        )
-        dequant_int4_kernel[grid](
+        dequant_int4_kernel[self._grid](
             w_deq, self.weight_packed, self.scales,
-            M, K, K // 2, self.groups_per_row,
+            M, K, self._half_K, self.groups_per_row,
             GROUP_SIZE_CONST=self.group_size,
-            BLOCK_M=BLOCK_M, BLOCK_K=BLOCK_K,
+            BLOCK_M=128, BLOCK_K=128,
             num_warps=4, num_stages=3,
         )
-
         return F.linear(x, w_deq, self.bias)
 
 
