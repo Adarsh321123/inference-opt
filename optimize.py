@@ -251,7 +251,7 @@ def collect_activation_stats(model, calib_data, device="cuda:0"):
 # QUANTIZE A LINEAR MODULE
 # ============================================================
 
-def quantize_linear(module, stats=None, quant_device="cuda"):
+def quantize_linear(module, stats=None):
     weight = module.weight.data
     bias = module.bias.data if module.bias is not None else None
     out_feat, in_feat = weight.shape
@@ -259,17 +259,10 @@ def quantize_linear(module, stats=None, quant_device="cuda"):
     assert in_feat % GROUP_SIZE == 0, f"in_features {in_feat} not divisible by {GROUP_SIZE}"
     assert in_feat % 2 == 0
 
-    # Move to GPU for fast quantization
-    w_gpu = weight.to(quant_device)
-    h_diag = stats["H_diag"].to(quant_device) if stats is not None else None
-    scales = compute_scales(w_gpu, GROUP_SIZE, BITS, h_diag=h_diag)
-    w_int4 = quantize_weight(w_gpu, scales, GROUP_SIZE, BITS)
+    h_diag = stats["H_diag"].cpu() if stats is not None else None
+    scales = compute_scales(weight, GROUP_SIZE, BITS, h_diag=h_diag)
+    w_int4 = quantize_weight(weight, scales, GROUP_SIZE, BITS)
     w_packed = pack_int4(w_int4)
-    # Move results back to CPU to control VRAM
-    scales = scales.cpu()
-    w_packed = w_packed.cpu()
-    del w_gpu, w_int4
-    torch.cuda.empty_cache()
 
     return QuantizedLinear(
         in_feat, out_feat, w_packed, scales,
