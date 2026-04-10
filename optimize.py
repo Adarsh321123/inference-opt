@@ -156,7 +156,6 @@ class QuantizedLinear(nn.Module):
         self.out_features = out_features
         self.tile_m = tile_m
         self.groups_per_row = in_features // GROUP_SIZE
-
         self.register_buffer('w_tiled', w_tiled)
         self.register_buffer('s_tiled', s_tiled)
         if bias is not None:
@@ -164,26 +163,23 @@ class QuantizedLinear(nn.Module):
         else:
             self.bias = None
 
-    def _dequant(self, dtype=torch.bfloat16):
-        """Dequantize tiled int4 weights on-the-fly."""
+    def _dequant(self, dtype):
+        """Dequantize tiled int4 weights to full precision."""
         wt = self.w_tiled
         lo = ((wt & 0xF).to(torch.int8) - 8).to(dtype)
         hi = (((wt >> 4) & 0xF).to(torch.int8) - 8).to(dtype)
-
         w_int = torch.empty(*wt.shape[:-1], HALF_GS * 2, dtype=dtype, device=wt.device)
         w_int[..., 0::2] = lo
         w_int[..., 1::2] = hi
-
-        w_float = w_int * self.s_tiled.unsqueeze(-1).to(dtype)
-        return w_float.permute(0, 2, 1, 3).reshape(self.out_features, self.in_features)
+        return (w_int * self.s_tiled.unsqueeze(-1).to(dtype)).permute(0, 2, 1, 3).reshape(self.out_features, self.in_features)
 
     def forward(self, x):
         orig_shape = x.shape
         x_flat = x.reshape(-1, self.in_features)
         batch = x_flat.shape[0]
 
-        if batch <= 8:
-            # Fused kernel: fast for generation and prompt_lookup verification
+        if batch <= 16:
+            # Fused kernel loop: fast for generation + prompt_lookup
             output = torch.empty(batch, self.out_features, device=x.device, dtype=torch.float32)
             n_tiles = self.out_features // self.tile_m
             for b in range(batch):
@@ -195,7 +191,7 @@ class QuantizedLinear(nn.Module):
                 )
             output = output.to(x.dtype)
         else:
-            # Dequant + cuBLAS: handles prefill/perplexity with large batch
+            # Dequant + cuBLAS for large batches (perplexity eval)
             w_deq = self._dequant(x.dtype)
             output = x_flat @ w_deq.t()
 
@@ -281,8 +277,10 @@ def optimize_model(model_name: str, device: str = "cuda"):
     torch.cuda.empty_cache()
 
     # Inference config
+    # Prompt lookup for speculative generation
+    # Use moderate values to keep verification batch small for fused kernel
     is_llama = "llama" in model_name.lower()
-    model.generation_config.prompt_lookup_num_tokens = 64 if is_llama else 256
+    model.generation_config.prompt_lookup_num_tokens = 8 if is_llama else 16
 
     print("Done.")
     return model, tokenizer
