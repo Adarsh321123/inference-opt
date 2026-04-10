@@ -324,6 +324,9 @@ def optimize_model(model_name: str, device: str = "cuda"):
     torch.cuda.empty_cache()
 
     # --- Inference config ---
+    torch.set_float32_matmul_precision('high')
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
     is_llama = "llama" in model_name.lower()
     model.generation_config.prompt_lookup_num_tokens = 128 if is_llama else 256
 
