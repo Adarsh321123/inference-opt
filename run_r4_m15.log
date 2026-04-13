@@ -1,0 +1,43 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+=== EVALUATING OPTIMIZED: mistralai/Mistral-7B-v0.3 ===
+Running optimize_model()...
+Loading model bf16 on CPU...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights: 100%|██████████| 291/291 [00:00<00:00, 8889.73it/s]
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py:1208: UserWarning: Config Deprecation: version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+Quantizing...
+Optimizing scales with calibration data...
+  Layer 0 scale opt failed: Sizes of tensors must match except in dimension 0. Expected size 190 but got size 124 for tensor number 1 in the list.
+Traceback (most recent call last):
+  File "/workspace/inference-opt/optimize.py", line 159, in optimize_model
+    optimize_scales(layer, i, hidden_states_list, device)
+  File "/workspace/inference-opt/optimize.py", line 86, in optimize_scales
+    cal_x = torch.cat(linear_inputs[name], dim=0)
+RuntimeError: Sizes of tensors must match except in dimension 0. Expected size 190 but got size 124 for tensor number 1 in the list.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/workspace/inference-opt/evaluate.py", line 247, in <module>
+    run_evaluation(args.model)
+  File "/workspace/inference-opt/evaluate.py", line 189, in run_evaluation
+    model, tokenizer = optimize_model(model_name)
+  File "/workspace/inference-opt/optimize.py", line 174, in optimize_model
+    out = layer(h, position_ids=pos_ids)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/modeling_layers.py", line 93, in __call__
+    return super().__call__(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/models/mistral/modeling_mistral.py", line 224, in forward
+    hidden_states, _ = self.self_attn(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/models/mistral/modeling_mistral.py", line 154, in forward
+    cos, sin = position_embeddings
+TypeError: cannot unpack non-iterable NoneType object

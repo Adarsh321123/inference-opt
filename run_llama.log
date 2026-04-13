@@ -1,0 +1,33 @@
+[W408 11:16:47.101112062 Context.cpp:566] Warning: torch.backends.cuda.preferred_blas_library is an experimental feature. If you see any error or unexpected behavior when this flag is set please file an issue on GitHub. (function operator())
+=== EVALUATING OPTIMIZED: meta-llama/Meta-Llama-3.1-8B ===
+Running optimize_model()...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights:   0%|          | 1/291 [00:00<00:38,  7.45it/s]Loading weights:   1%|          | 2/291 [00:00<00:39,  7.41it/s]Loading weights:   4%|▍         | 13/291 [00:00<00:06, 45.28it/s]Loading weights:   9%|▉         | 26/291 [00:00<00:03, 74.46it/s]Loading weights:  14%|█▎        | 40/291 [00:00<00:02, 93.24it/s]Loading weights:  19%|█▊        | 54/291 [00:00<00:02, 106.96it/s]Loading weights:  23%|██▎       | 68/291 [00:00<00:01, 116.66it/s]Loading weights:  29%|██▉       | 85/291 [00:00<00:01, 129.76it/s]Loading weights:  34%|███▍      | 99/291 [00:01<00:01, 131.61it/s]Loading weights:  39%|███▉      | 113/291 [00:01<00:01, 132.43it/s]Loading weights:  45%|████▍     | 130/291 [00:01<00:01, 137.22it/s]Loading weights:  49%|████▉     | 144/291 [00:01<00:01, 137.48it/s]Loading weights:  54%|█████▍    | 158/291 [00:01<00:00, 137.69it/s]Loading weights:  60%|██████    | 175/291 [00:01<00:00, 144.10it/s]Loading weights:  65%|██████▌   | 190/291 [00:01<00:00, 140.76it/s]Loading weights:  70%|███████   | 205/291 [00:01<00:00, 131.65it/s]Loading weights:  76%|███████▌  | 221/291 [00:01<00:00, 136.95it/s]Loading weights:  82%|████████▏ | 238/291 [00:01<00:00, 143.42it/s]Loading weights:  87%|████████▋ | 253/291 [00:02<00:00, 143.18it/s]Loading weights:  92%|█████████▏| 268/291 [00:02<00:00, 140.24it/s]Loading weights:  98%|█████████▊| 284/291 [00:02<00:00, 143.26it/s]Loading weights: 100%|██████████| 291/291 [00:02<00:00, 124.19it/s]
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Optimization took 10.9s
+Loading eval data...
+Measuring perplexity on 80 samples...
+Measuring generation speed...
+
+---
+efficiency_score: 2.1988
+quality_retained: 0.9360
+speedup:          0.8985
+memory_reduction: 2.6145
+perplexity:       11.1041
+baseline_ppl:     10.3939
+tokens_per_sec:   32.1
+baseline_tps:     35.8
+peak_vram_gb:     5.98
+baseline_vram_gb: 15.64
+opt_seconds:      10.9

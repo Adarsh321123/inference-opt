@@ -1,0 +1,26 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+=== EVALUATING OPTIMIZED: mistralai/Mistral-7B-v0.3 ===
+Running optimize_model()...
+Loading model bf16 on CPU...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights: 100%|██████████| 291/291 [00:00<00:00, 7822.19it/s]
+Quantizing with FP8+Int4...
+Traceback (most recent call last):
+  File "/workspace/inference-opt/evaluate.py", line 247, in <module>
+    run_evaluation(args.model)
+  File "/workspace/inference-opt/evaluate.py", line 189, in run_evaluation
+    model, tokenizer = optimize_model(model_name)
+  File "/workspace/inference-opt/optimize.py", line 41, in optimize_model
+    quantize_(layer, config)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 510, in quantize_
+    _replace_with_custom_fn_if_matches_filter(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 213, in _replace_with_custom_fn_if_matches_filter
+    new_child = _replace_with_custom_fn_if_matches_filter(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 213, in _replace_with_custom_fn_if_matches_filter
+    new_child = _replace_with_custom_fn_if_matches_filter(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 208, in _replace_with_custom_fn_if_matches_filter
+    model = replacement_fn(model, *extra_args)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 1313, in _float8_dynamic_activation_int4_weight_transform
+    new_weight = Int4PreshuffledTensor.from_hp(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quantize_/workflows/int4/int4_preshuffled_tensor.py", line 141, in from_hp
+    raise ImportError("Requires fbgemm-gpu-genai >= 1.2.0")
+ImportError: Requires fbgemm-gpu-genai >= 1.2.0

@@ -1,0 +1,26 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+=== FP16 BASELINE: mistralai/Mistral-7B-v0.3 ===
+Loading tokenizer...
+Loading model (FP16)...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights:   5%|▌         | 15/291 [00:00<00:02, 131.21it/s]Loading weights:  10%|▉         | 29/291 [00:00<00:02, 125.54it/s]Loading weights:  14%|█▍        | 42/291 [00:00<00:02, 99.75it/s] Loading weights:  18%|█▊        | 53/291 [00:00<00:02, 96.60it/s]Loading weights:  23%|██▎       | 67/291 [00:00<00:02, 95.67it/s]Loading weights:  26%|██▋       | 77/291 [00:00<00:02, 88.21it/s]Loading weights:  31%|███       | 90/291 [00:00<00:02, 97.90it/s]Loading weights:  35%|███▍      | 101/291 [00:01<00:01, 97.65it/s]Loading weights:  38%|███▊      | 111/291 [00:01<00:01, 93.65it/s]Loading weights:  42%|████▏     | 121/291 [00:01<00:01, 90.49it/s]Loading weights:  45%|████▌     | 131/291 [00:01<00:01, 91.34it/s]Loading weights:  48%|████▊     | 141/291 [00:01<00:01, 85.18it/s]Loading weights:  52%|█████▏    | 150/291 [00:01<00:01, 86.04it/s]Loading weights:  56%|█████▌    | 163/291 [00:01<00:01, 96.91it/s]Loading weights:  60%|██████    | 175/291 [00:01<00:01, 89.36it/s]Loading weights:  64%|██████▎   | 185/291 [00:01<00:01, 91.97it/s]Loading weights:  67%|██████▋   | 195/291 [00:02<00:01, 86.31it/s]Loading weights:  70%|███████   | 204/291 [00:02<00:01, 85.86it/s]Loading weights:  73%|███████▎  | 213/291 [00:02<00:00, 80.14it/s]Loading weights:  76%|███████▋  | 222/291 [00:02<00:00, 70.86it/s]Loading weights:  81%|████████  | 235/291 [00:02<00:00, 78.80it/s]Loading weights:  85%|████████▍ | 247/291 [00:02<00:00, 82.19it/s]Loading weights:  88%|████████▊ | 257/291 [00:02<00:00, 80.72it/s]Loading weights:  91%|█████████▏| 266/291 [00:03<00:00, 80.73it/s]Loading weights:  95%|█████████▍| 275/291 [00:03<00:00, 74.59it/s]Loading weights:  98%|█████████▊| 285/291 [00:03<00:00, 80.63it/s]Loading weights: 100%|██████████| 291/291 [00:03<00:00, 88.99it/s]
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Loading eval data...
+Measuring perplexity on 80 samples...
+Measuring generation speed...
+
+--- BASELINE ---
+perplexity:     8.8924
+tokens_per_sec: 36.8
+peak_vram_gb:   13.78
+
+Baseline saved to baseline.json

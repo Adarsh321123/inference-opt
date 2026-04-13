@@ -1,0 +1,38 @@
+[W408 18:49:33.685465655 Context.cpp:566] Warning: torch.backends.cuda.preferred_blas_library is an experimental feature. If you see any error or unexpected behavior when this flag is set please file an issue on GitHub. (function operator())
+`torch_dtype` is deprecated! Use `dtype` instead!
+=== EVALUATING OPTIMIZED: meta-llama/Meta-Llama-3.1-8B ===
+Running optimize_model()...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights:   0%|          | 1/291 [00:00<01:24,  3.42it/s]Loading weights:   5%|▌         | 15/291 [00:00<00:05, 47.97it/s]Loading weights:  11%|█         | 32/291 [00:00<00:03, 84.12it/s]Loading weights:  17%|█▋        | 49/291 [00:00<00:02, 109.94it/s]Loading weights:  22%|██▏       | 64/291 [00:00<00:01, 121.51it/s]Loading weights:  27%|██▋       | 79/291 [00:00<00:01, 121.52it/s]Loading weights:  33%|███▎      | 95/291 [00:00<00:01, 131.37it/s]Loading weights:  38%|███▊      | 112/291 [00:01<00:01, 139.18it/s]Loading weights:  44%|████▎     | 127/291 [00:01<00:01, 135.63it/s]Loading weights:  49%|████▉     | 142/291 [00:01<00:01, 135.25it/s]Loading weights:  54%|█████▍    | 158/291 [00:01<00:00, 134.94it/s]Loading weights:  59%|█████▉    | 172/291 [00:01<00:00, 131.72it/s]Loading weights:  64%|██████▍   | 186/291 [00:01<00:00, 119.03it/s]Loading weights:  68%|██████▊   | 199/291 [00:01<00:00, 121.83it/s]Loading weights:  73%|███████▎  | 212/291 [00:01<00:00, 117.39it/s]Loading weights:  77%|███████▋  | 225/291 [00:01<00:00, 119.58it/s]Loading weights:  82%|████████▏ | 238/291 [00:02<00:00, 121.55it/s]Loading weights:  86%|████████▋ | 251/291 [00:02<00:00, 118.03it/s]Loading weights:  91%|█████████ | 265/291 [00:02<00:00, 121.04it/s]Loading weights:  96%|█████████▌| 278/291 [00:02<00:00, 117.78it/s]Loading weights: 100%|██████████| 291/291 [00:02<00:00, 115.86it/s]
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py:1208: UserWarning: Config Deprecation: version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Optimization took 26.7s
+Loading eval data...
+Measuring perplexity on 80 samples...
+Measuring generation speed...
+
+---
+efficiency_score: 1.0627
+quality_retained: 0.9020
+speedup:          1.2229
+memory_reduction: 0.9634
+perplexity:       11.5230
+baseline_ppl:     10.3939
+tokens_per_sec:   46.5
+baseline_tps:     38.0
+peak_vram_gb:     16.23
+baseline_vram_gb: 15.64
+opt_seconds:      26.7

@@ -1,0 +1,31 @@
+=== EVALUATING OPTIMIZED: mistralai/Mistral-7B-v0.3 ===
+Running optimize_model()...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights:   1%|▏         | 4/291 [00:00<00:08, 32.16it/s]Loading weights:   5%|▌         | 15/291 [00:00<00:03, 69.22it/s]Loading weights:  11%|█         | 31/291 [00:00<00:02, 106.28it/s]Loading weights:  15%|█▍        | 43/291 [00:00<00:02, 109.23it/s]Loading weights:  20%|██        | 59/291 [00:00<00:01, 122.64it/s]Loading weights:  26%|██▌       | 76/291 [00:00<00:01, 134.09it/s]Loading weights:  31%|███       | 90/291 [00:00<00:01, 132.54it/s]Loading weights:  36%|███▌      | 104/291 [00:00<00:01, 132.56it/s]Loading weights:  42%|████▏     | 121/291 [00:00<00:01, 139.85it/s]Loading weights:  47%|████▋     | 136/291 [00:01<00:01, 141.39it/s]Loading weights:  52%|█████▏    | 151/291 [00:01<00:00, 140.24it/s]Loading weights:  57%|█████▋    | 167/291 [00:01<00:00, 143.94it/s]Loading weights:  63%|██████▎   | 184/291 [00:01<00:00, 148.71it/s]Loading weights:  68%|██████▊   | 199/291 [00:01<00:00, 145.82it/s]Loading weights:  74%|███████▎  | 214/291 [00:01<00:00, 141.77it/s]Loading weights:  79%|███████▉  | 230/291 [00:01<00:00, 144.04it/s]Loading weights:  85%|████████▍ | 247/291 [00:01<00:00, 151.00it/s]Loading weights:  90%|█████████ | 263/291 [00:01<00:00, 149.83it/s]Loading weights:  96%|█████████▌| 279/291 [00:02<00:00, 143.51it/s]Loading weights: 100%|██████████| 291/291 [00:02<00:00, 136.28it/s]
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Optimization took 8.6s
+Loading eval data...
+Measuring perplexity on 80 samples...
+Measuring generation speed...
+
+---
+efficiency_score: 3.2456
+quality_retained: 0.9708
+speedup:          1.0850
+memory_reduction: 3.0814
+perplexity:       9.1600
+baseline_ppl:     8.8924
+tokens_per_sec:   39.2
+baseline_tps:     36.1
+peak_vram_gb:     4.47
+baseline_vram_gb: 13.78
+opt_seconds:      8.6

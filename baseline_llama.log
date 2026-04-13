@@ -1,0 +1,27 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+=== FP16 BASELINE: meta-llama/Meta-Llama-3.1-8B ===
+Loading tokenizer...
+Loading model (FP16)...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights:   0%|          | 1/291 [00:00<02:09,  2.25it/s]Loading weights:   1%|          | 2/291 [00:00<01:17,  3.71it/s]Loading weights:   5%|▍         | 14/291 [00:00<00:09, 30.77it/s]Loading weights:   8%|▊         | 22/291 [00:00<00:07, 37.88it/s]Loading weights:  14%|█▎        | 40/291 [00:00<00:03, 67.56it/s]Loading weights:  17%|█▋        | 50/291 [00:01<00:03, 72.46it/s]Loading weights:  21%|██        | 60/291 [00:01<00:02, 79.34it/s]Loading weights:  25%|██▌       | 73/291 [00:01<00:02, 89.53it/s]Loading weights:  29%|██▉       | 85/291 [00:01<00:02, 89.14it/s]Loading weights:  33%|███▎      | 95/291 [00:01<00:02, 88.64it/s]Loading weights:  36%|███▌      | 105/291 [00:01<00:02, 90.45it/s]Loading weights:  40%|███▉      | 115/291 [00:01<00:01, 92.62it/s]Loading weights:  44%|████▎     | 127/291 [00:01<00:01, 99.58it/s]Loading weights:  48%|████▊     | 139/291 [00:01<00:01, 105.13it/s]Loading weights:  52%|█████▏    | 150/291 [00:02<00:01, 82.77it/s] Loading weights:  56%|█████▌    | 163/291 [00:02<00:01, 90.22it/s]Loading weights:  60%|██████    | 175/291 [00:02<00:01, 91.88it/s]Loading weights:  64%|██████▎   | 185/291 [00:02<00:01, 91.69it/s]Loading weights:  67%|██████▋   | 195/291 [00:02<00:01, 89.65it/s]Loading weights:  70%|███████   | 205/291 [00:02<00:00, 87.96it/s]Loading weights:  75%|███████▍  | 217/291 [00:02<00:00, 94.56it/s]Loading weights:  78%|███████▊  | 227/291 [00:02<00:00, 90.93it/s]Loading weights:  81%|████████▏ | 237/291 [00:03<00:00, 80.46it/s]Loading weights:  85%|████████▍ | 246/291 [00:03<00:00, 80.51it/s]Loading weights:  88%|████████▊ | 255/291 [00:03<00:00, 75.69it/s]Loading weights:  90%|█████████ | 263/291 [00:03<00:00, 75.41it/s]Loading weights:  94%|█████████▍| 274/291 [00:03<00:00, 80.51it/s]Loading weights:  97%|█████████▋| 283/291 [00:03<00:00, 82.03it/s]Loading weights: 100%|██████████| 291/291 [00:03<00:00, 77.07it/s]
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Loading eval data...
+Measuring perplexity on 80 samples...
+Measuring generation speed...
+
+--- BASELINE ---
+perplexity:     10.3939
+tokens_per_sec: 37.0
+peak_vram_gb:   15.64
+
+Baseline saved to baseline.json

@@ -1,0 +1,6 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+WARNING: baseline was for mistralai/Mistral-7B-v0.3, evaluating meta-llama/Meta-Llama-3.1-8B
+=== EVALUATING OPTIMIZED: meta-llama/Meta-Llama-3.1-8B ===
+Running optimize_model()...
+Loading model bf16 on CPU...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights: 100%|██████████| 291/291 [00:00<00:00, 7361.18it/s]

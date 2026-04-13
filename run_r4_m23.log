@@ -1,0 +1,28 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+=== EVALUATING OPTIMIZED: mistralai/Mistral-7B-v0.3 ===
+Running optimize_model()...
+Loading model bf16 on CPU...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights: 100%|██████████| 291/291 [00:00<00:00, 7175.95it/s]
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py:1208: UserWarning: Config Deprecation: version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+Quantizing...
+Fine-tuning LayerNorm weights...
+  Fine-tuning 65 LayerNorm parameters...
+Traceback (most recent call last):
+  File "/workspace/inference-opt/evaluate.py", line 247, in <module>
+    run_evaluation(args.model)
+  File "/workspace/inference-opt/evaluate.py", line 189, in run_evaluation
+    model, tokenizer = optimize_model(model_name)
+  File "/workspace/inference-opt/optimize.py", line 111, in optimize_model
+    finetune_layernorms(model, calib_data, device)
+  File "/workspace/inference-opt/optimize.py", line 66, in finetune_layernorms
+    loss.backward()
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/_tensor.py", line 625, in backward
+    torch.autograd.backward(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/autograd/__init__.py", line 354, in backward
+    _engine_run_backward(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/autograd/graph.py", line 841, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+RuntimeError: derivative for aten::_weight_int4pack_mm is not implemented

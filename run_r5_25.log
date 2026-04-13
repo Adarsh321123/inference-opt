@@ -1,0 +1,38 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+WARNING: baseline was for mistralai/Mistral-7B-v0.3, evaluating meta-llama/Meta-Llama-3.1-8B
+=== EVALUATING OPTIMIZED: meta-llama/Meta-Llama-3.1-8B ===
+Running optimize_model()...
+Loading model bf16 on CPU...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights: 100%|██████████| 291/291 [00:00<00:00, 6052.09it/s]
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Collecting activation statistics...
+Quantizing...
+Done.
+Optimization took 855.2s
+Loading eval data...
+Measuring perplexity on 80 samples...
+Measuring generation speed...
+
+---
+efficiency_score: 0.0000
+quality_retained: 0.7731
+speedup:          0.7453
+memory_reduction: 2.2985
+perplexity:       11.5022
+baseline_ppl:     8.8924
+tokens_per_sec:   28.5
+baseline_tps:     38.2
+peak_vram_gb:     6.00
+baseline_vram_gb: 13.78
+opt_seconds:      855.2

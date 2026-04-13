@@ -1,0 +1,36 @@
+=== EVALUATING OPTIMIZED: meta-llama/Meta-Llama-3.1-8B ===
+Running optimize_model()...
+Loading model bf16 on CPU...
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights: 100%|██████████| 291/291 [00:00<00:00, 5517.52it/s]
+Quantizing layers 2..29 (GPU-accelerated)...
+Done.
+Optimization took 20.3s
+Loading eval data...
+Measuring perplexity on 80 samples...
+Measuring generation speed...
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+
+---
+efficiency_score: 1.2734
+quality_retained: 0.8842
+speedup:          0.6730
+memory_reduction: 2.1401
+perplexity:       11.7552
+baseline_ppl:     10.3939
+tokens_per_sec:   25.5
+baseline_tps:     37.9
+peak_vram_gb:     7.31
+baseline_vram_gb: 15.64
+opt_seconds:      20.3

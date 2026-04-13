@@ -1,0 +1,28 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+=== EVALUATING OPTIMIZED: meta-llama/Meta-Llama-3.1-8B ===
+Running optimize_model()...
+Loading model bf16 on CPU...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights: 100%|██████████| 291/291 [00:00<00:00, 7482.21it/s]
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py:1048: UserWarning: `GemliteUIntXWeightOnlyConfig` will be moving to prototype in a future release of torchao. Please see https://github.com/pytorch/ao/issues/2752 for more details.
+  warnings.warn(
+Quantizing with gemlite...
+Traceback (most recent call last):
+  File "/workspace/inference-opt/evaluate.py", line 247, in <module>
+    run_evaluation(args.model)
+  File "/workspace/inference-opt/evaluate.py", line 189, in run_evaluation
+    model, tokenizer = optimize_model(model_name)
+  File "/workspace/inference-opt/optimize.py", line 41, in optimize_model
+    quantize_(layer, config)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 510, in quantize_
+    _replace_with_custom_fn_if_matches_filter(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 213, in _replace_with_custom_fn_if_matches_filter
+    new_child = _replace_with_custom_fn_if_matches_filter(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 213, in _replace_with_custom_fn_if_matches_filter
+    new_child = _replace_with_custom_fn_if_matches_filter(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 208, in _replace_with_custom_fn_if_matches_filter
+    model = replacement_fn(model, *extra_args)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 1077, in _gemlite_uintx_weight_only_transform
+    **get_gemlite_aqt_kwargs(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/prototype/dtypes/uintx/gemlite_layout.py", line 92, in get_gemlite_aqt_kwargs
+    raise ImportError(
+ImportError: Unable to import 'gemlite'. Please ensure it is installed correctly. You can install it with: pip install gemlite

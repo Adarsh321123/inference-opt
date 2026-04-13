@@ -1,0 +1,57 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+WARNING: baseline was for mistralai/Mistral-7B-v0.3, evaluating meta-llama/Meta-Llama-3.1-8B
+=== EVALUATING OPTIMIZED: meta-llama/Meta-Llama-3.1-8B ===
+Running optimize_model()...
+Loading model bf16 on CPU...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights: 100%|██████████| 291/291 [00:00<00:00, 6220.34it/s]
+Quantizing with fused int4 kernel...
+Done.
+Optimization took 95.3s
+Loading eval data...
+Measuring perplexity on 80 samples...
+Traceback (most recent call last):
+  File "/workspace/inference-opt/evaluate.py", line 247, in <module>
+    run_evaluation(args.model)
+  File "/workspace/inference-opt/evaluate.py", line 201, in run_evaluation
+    perplexity = measure_perplexity(model, tokenizer, texts)
+  File "/workspace/inference-opt/evaluate.py", line 56, in measure_perplexity
+    outputs = model(input_ids, labels=input_ids)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/utils/generic.py", line 876, in wrapper
+    output = func(self, *args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/models/llama/modeling_llama.py", line 474, in forward
+    outputs: BaseModelOutputWithPast = self.model(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/utils/generic.py", line 952, in wrapper
+    output = func(self, *args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/utils/output_capturing.py", line 248, in wrapper
+    outputs = func(self, *args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/models/llama/modeling_llama.py", line 411, in forward
+    hidden_states = decoder_layer(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/modeling_layers.py", line 93, in __call__
+    return super().__call__(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/models/llama/modeling_llama.py", line 316, in forward
+    hidden_states, _ = self.self_attn(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/models/llama/modeling_llama.py", line 262, in forward
+    query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1775, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1786, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/workspace/inference-opt/optimize.py", line 187, in forward
+    output = x_flat.to(torch.float16) @ w_bf16.t()
+RuntimeError: expected mat1 and mat2 to have the same dtype, but got: c10::Half != float

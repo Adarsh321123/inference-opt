@@ -1,0 +1,24 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+A new version of the following files was downloaded from https://huggingface.co/microsoft/Phi-3-small-8k-instruct:
+- positional_embedding.py
+. Make sure to double-check they do not contain any added malicious code. To avoid downloading new versions of the code file, you can pin a revision.
+Encountered exception while importing pytest: No module named 'pytest'
+=== FP16 BASELINE: microsoft/Phi-3-small-8k-instruct ===
+Loading tokenizer...
+Loading model (FP16)...
+Traceback (most recent call last):
+  File "/workspace/inference-opt/evaluate.py", line 245, in <module>
+    run_baseline(args.model)
+  File "/workspace/inference-opt/evaluate.py", line 129, in run_baseline
+    model = AutoModelForCausalLM.from_pretrained(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/models/auto/auto_factory.py", line 369, in from_pretrained
+    model_class = get_class_from_dynamic_module(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/dynamic_module_utils.py", line 572, in get_class_from_dynamic_module
+    final_module = get_cached_module_file(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/dynamic_module_utils.py", line 450, in get_cached_module_file
+    get_cached_module_file(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/dynamic_module_utils.py", line 410, in get_cached_module_file
+    modules_needed = check_imports(resolved_module_file)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/dynamic_module_utils.py", line 258, in check_imports
+    raise ImportError(
+ImportError: This modeling file requires the following packages that were not found in your environment: pytest. Run `pip install pytest`

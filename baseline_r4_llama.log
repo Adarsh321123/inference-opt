@@ -1,0 +1,27 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+=== FP16 BASELINE: meta-llama/Meta-Llama-3.1-8B ===
+Loading tokenizer...
+Loading model (FP16)...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights:   3%|▎         | 10/291 [00:00<00:03, 84.76it/s]Loading weights:   8%|▊         | 23/291 [00:00<00:02, 101.39it/s]Loading weights:  14%|█▎        | 40/291 [00:00<00:02, 118.27it/s]Loading weights:  18%|█▊        | 52/291 [00:00<00:02, 112.06it/s]Loading weights:  22%|██▏       | 64/291 [00:00<00:02, 105.56it/s]Loading weights:  26%|██▌       | 76/291 [00:00<00:02, 99.19it/s] Loading weights:  31%|███       | 90/291 [00:00<00:01, 107.78it/s]Loading weights:  35%|███▌      | 103/291 [00:01<00:02, 85.05it/s]Loading weights:  42%|████▏     | 121/291 [00:01<00:01, 103.64it/s]Loading weights:  46%|████▌     | 133/291 [00:01<00:01, 91.73it/s] Loading weights:  51%|█████     | 148/291 [00:01<00:01, 101.95it/s]Loading weights:  55%|█████▍    | 160/291 [00:01<00:01, 104.56it/s]Loading weights:  59%|█████▉    | 172/291 [00:01<00:01, 103.78it/s]Loading weights:  63%|██████▎   | 184/291 [00:01<00:01, 105.41it/s]Loading weights:  67%|██████▋   | 195/291 [00:01<00:00, 100.12it/s]Loading weights:  71%|███████   | 206/291 [00:02<00:00, 94.32it/s] Loading weights:  76%|███████▌  | 220/291 [00:02<00:00, 96.84it/s]Loading weights:  79%|███████▉  | 230/291 [00:02<00:00, 85.99it/s]Loading weights:  85%|████████▍ | 247/291 [00:02<00:00, 91.08it/s]Loading weights:  88%|████████▊ | 257/291 [00:02<00:00, 89.77it/s]Loading weights:  92%|█████████▏| 267/291 [00:02<00:00, 89.00it/s]Loading weights:  95%|█████████▍| 276/291 [00:02<00:00, 88.01it/s]Loading weights: 100%|██████████| 291/291 [00:02<00:00, 98.92it/s]
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Loading eval data...
+Measuring perplexity on 80 samples...
+Measuring generation speed...
+
+--- BASELINE ---
+perplexity:     10.3939
+tokens_per_sec: 37.0
+peak_vram_gb:   15.64
+
+Baseline saved to baseline.json

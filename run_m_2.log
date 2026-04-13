@@ -1,0 +1,31 @@
+=== EVALUATING OPTIMIZED: mistralai/Mistral-7B-v0.3 ===
+Running optimize_model()...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights:   1%|▏         | 4/291 [00:00<00:08, 33.59it/s]Loading weights:   8%|▊         | 22/291 [00:00<00:02, 109.83it/s]Loading weights:  14%|█▍        | 41/291 [00:00<00:01, 138.13it/s]Loading weights:  20%|██        | 59/291 [00:00<00:01, 153.06it/s]Loading weights:  26%|██▋       | 77/291 [00:00<00:01, 160.70it/s]Loading weights:  33%|███▎      | 96/291 [00:00<00:01, 164.66it/s]Loading weights:  40%|████      | 117/291 [00:00<00:00, 177.68it/s]Loading weights:  46%|████▋     | 135/291 [00:00<00:00, 178.18it/s]Loading weights:  53%|█████▎    | 153/291 [00:00<00:00, 175.19it/s]Loading weights:  59%|█████▉    | 171/291 [00:01<00:00, 165.70it/s]Loading weights:  65%|██████▍   | 188/291 [00:01<00:00, 162.64it/s]Loading weights:  70%|███████   | 205/291 [00:01<00:00, 161.37it/s]Loading weights:  77%|███████▋  | 225/291 [00:01<00:00, 170.78it/s]Loading weights:  84%|████████▍ | 245/291 [00:01<00:00, 178.80it/s]Loading weights:  91%|█████████ | 265/291 [00:01<00:00, 180.59it/s]Loading weights:  98%|█████████▊| 284/291 [00:01<00:00, 179.04it/s]Loading weights: 100%|██████████| 291/291 [00:01<00:00, 167.08it/s]
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:2 for open-end generation.
+Optimization took 8.1s
+Loading eval data...
+Measuring perplexity on 80 samples...
+Measuring generation speed...
+
+---
+efficiency_score: 3.2350
+quality_retained: 0.9708
+speedup:          1.0814
+memory_reduction: 3.0814
+perplexity:       9.1600
+baseline_ppl:     8.8924
+tokens_per_sec:   37.4
+baseline_tps:     34.6
+peak_vram_gb:     4.47
+baseline_vram_gb: 13.78
+opt_seconds:      8.1

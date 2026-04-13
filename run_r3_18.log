@@ -1,0 +1,28 @@
+[W408 19:08:37.109211253 Context.cpp:566] Warning: torch.backends.cuda.preferred_blas_library is an experimental feature. If you see any error or unexpected behavior when this flag is set please file an issue on GitHub. (function operator())
+`torch_dtype` is deprecated! Use `dtype` instead!
+=== EVALUATING OPTIMIZED: meta-llama/Meta-Llama-3.1-8B ===
+Running optimize_model()...
+Traceback (most recent call last):
+  File "/workspace/inference-opt/evaluate.py", line 247, in <module>
+    run_evaluation(args.model)
+  File "/workspace/inference-opt/evaluate.py", line 189, in run_evaluation
+    model, tokenizer = optimize_model(model_name)
+  File "/workspace/inference-opt/optimize.py", line 25, in optimize_model
+    model = AutoModelForCausalLM.from_pretrained(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/models/auto/auto_factory.py", line 387, in from_pretrained
+    return model_class.from_pretrained(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/modeling_utils.py", line 4089, in from_pretrained
+    model = cls(config, *model_args, **model_kwargs)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/models/llama/modeling_llama.py", line 435, in __init__
+    super().__init__(config)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/modeling_utils.py", line 1255, in __init__
+    self.config._attn_implementation_internal = self._check_and_adjust_attn_implementation(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/modeling_utils.py", line 1865, in _check_and_adjust_attn_implementation
+    applicable_attn_implementation = self.get_correct_attn_implementation(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/modeling_utils.py", line 1912, in get_correct_attn_implementation
+    self._flash_attn_can_dispatch(flash_attn_version=fa_version, is_init_check=is_init_check)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/modeling_utils.py", line 1647, in _flash_attn_can_dispatch
+    self._flash_attn_import_error(**FLASH_ATTENTION_COMPATIBILITY_MATRIX[flash_attn_version])
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/modeling_utils.py", line 1602, in _flash_attn_import_error
+    raise ImportError(
+ImportError: FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package for FlashAttention2 doesn't seem to be installed.

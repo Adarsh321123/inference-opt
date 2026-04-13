@@ -1,0 +1,36 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+=== EVALUATING OPTIMIZED: mistralai/Mistral-7B-v0.3 ===
+Running optimize_model()...
+Loading model bf16 on CPU...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights: 100%|██████████| 291/291 [00:00<00:00, 6968.36it/s]
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py:1208: UserWarning: Config Deprecation: version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+Quantizing...
+Traceback (most recent call last):
+  File "/workspace/inference-opt/evaluate.py", line 247, in <module>
+    run_evaluation(args.model)
+  File "/workspace/inference-opt/evaluate.py", line 189, in run_evaluation
+    model, tokenizer = optimize_model(model_name)
+  File "/workspace/inference-opt/optimize.py", line 51, in optimize_model
+    quantize_(layer, config)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 510, in quantize_
+    _replace_with_custom_fn_if_matches_filter(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 213, in _replace_with_custom_fn_if_matches_filter
+    new_child = _replace_with_custom_fn_if_matches_filter(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 213, in _replace_with_custom_fn_if_matches_filter
+    new_child = _replace_with_custom_fn_if_matches_filter(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 208, in _replace_with_custom_fn_if_matches_filter
+    model = replacement_fn(model, *extra_args)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 1277, in _int4_weight_only_transform
+    new_weight = _int4_weight_only_quantize_tensor(module.weight, config)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py", line 1249, in _int4_weight_only_quantize_tensor
+    new_weight = to_affine_quantized_intx(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/affine_quantized_tensor.py", line 375, in from_hp_to_intx
+    tensor_impl = tensor_impl_ctr(data, scale, zero_point, _layout)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py", line 301, in from_plain
+    packed_weight = quant_2d(int_data)
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py", line 283, in quant_2d
+    return torch.ops.aten._convert_weight_to_int4pack(
+  File "/workspace/inference-opt/.venv/lib/python3.10/site-packages/torch/_ops.py", line 1255, in __call__
+    return self._op(*args, **kwargs)
+RuntimeError: Expected innerKTiles == 2 || innerKTiles == 4 || innerKTiles == 8 to be true, but got false.  (Could this error message be improved?  If so, please report an enhancement request to PyTorch.)

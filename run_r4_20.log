@@ -1,0 +1,133 @@
+`torch_dtype` is deprecated! Use `dtype` instead!
+=== EVALUATING OPTIMIZED: meta-llama/Meta-Llama-3.1-8B ===
+Running optimize_model()...
+Loading model bf16 on CPU...
+Loading weights:   0%|          | 0/291 [00:00<?, ?it/s]Loading weights: 100%|██████████| 291/291 [00:00<00:00, 5143.98it/s]
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/meta-llama/Llama-3.1-8B/resolve/main/custom_generate/generate.py
+Retrying in 1s [Retry 1/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/meta-llama/Llama-3.1-8B/resolve/main/custom_generate/generate.py
+Retrying in 2s [Retry 2/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/meta-llama/Llama-3.1-8B/resolve/main/custom_generate/generate.py
+Retrying in 4s [Retry 3/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/meta-llama/Llama-3.1-8B/resolve/main/custom_generate/generate.py
+Retrying in 8s [Retry 4/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/meta-llama/Llama-3.1-8B/resolve/main/custom_generate/generate.py
+Retrying in 8s [Retry 5/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/meta-llama/Llama-3.1-8B/resolve/main/custom_generate/generate.py
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/quantization/quant_api.py:1208: UserWarning: Config Deprecation: version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please use version 2, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/datasets/Salesforce/wikitext/resolve/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext.py
+Retrying in 1s [Retry 1/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/datasets/Salesforce/wikitext/resolve/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext.py
+Retrying in 2s [Retry 2/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/datasets/Salesforce/wikitext/resolve/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext.py
+Retrying in 4s [Retry 3/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/datasets/Salesforce/wikitext/resolve/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext.py
+Retrying in 8s [Retry 4/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/datasets/Salesforce/wikitext/resolve/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext.py
+Retrying in 8s [Retry 5/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/datasets/Salesforce/wikitext/resolve/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext.py
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/datasets/Salesforce/wikitext/resolve/b08601e04326c79dfdd32d625aee71d232d685c3/.huggingface.yaml
+Retrying in 1s [Retry 1/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/datasets/Salesforce/wikitext/resolve/b08601e04326c79dfdd32d625aee71d232d685c3/.huggingface.yaml
+Retrying in 2s [Retry 2/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/datasets/Salesforce/wikitext/resolve/b08601e04326c79dfdd32d625aee71d232d685c3/.huggingface.yaml
+Retrying in 4s [Retry 3/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/datasets/Salesforce/wikitext/resolve/b08601e04326c79dfdd32d625aee71d232d685c3/.huggingface.yaml
+Retrying in 8s [Retry 4/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/datasets/Salesforce/wikitext/resolve/b08601e04326c79dfdd32d625aee71d232d685c3/.huggingface.yaml
+Retrying in 8s [Retry 5/5].
+HTTP Error 503 thrown while requesting HEAD https://huggingface.co/datasets/Salesforce/wikitext/resolve/b08601e04326c79dfdd32d625aee71d232d685c3/.huggingface.yaml
+Using the latest cached version of the dataset since wikitext couldn't be found on the Hugging Face Hub
+Found the latest cached dataset configuration 'wikitext-2-raw-v1' at /root/.cache/huggingface/datasets/wikitext/wikitext-2-raw-v1/0.0.0/b08601e04326c79dfdd32d625aee71d232d685c3 (last modified on Wed Apr  8 01:48:07 2026).
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+W0409 00:12:00.097000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s27 + s53, 1) | Eq(s27 + s66, s27 + s53)
+W0409 00:12:00.435000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s27 + s53, 1) | Eq(s27 + s47, s27 + s53)
+W0409 00:12:00.781000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s27 + s47, 1) | Eq(s27 + s84, s27 + s47)
+W0409 00:12:01.059000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s27 + s47, 1) | Eq(s27 + s54, s27 + s47)
+W0409 00:12:01.322000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s27 + s47, 1) | Eq(s27 + s95, s27 + s47)
+W0409 00:12:01.575000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s27 + s47, 1) | Eq(s22 + s27, s27 + s47)
+W0409 00:12:01.911000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s22 + s27, 1) | Eq(s27 + s37, s22 + s27)
+W0409 00:12:02.198000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s22 + s27, 1) | Eq(s27 + s90, s22 + s27)
+W0409 00:12:02.500000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s22 + s27, 1) | Eq(s27 + s64, s22 + s27)
+W0409 00:12:02.840000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s22 + s27, 1) | Eq(s27 + s41, s22 + s27)
+W0409 00:12:03.171000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s22 + s27, 1) | Eq(s27 + s72, s22 + s27)
+W0409 00:12:03.488000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s22 + s27, 1) | Eq(s27 + s63, s22 + s27)
+W0409 00:12:03.787000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s22 + s27, 1) | Eq(s27 + s29, s22 + s27)
+W0409 00:12:04.088000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s22 + s27, 1) | Eq(s18 + s27, s22 + s27)
+W0409 00:12:04.451000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s50, s18 + s27)
+W0409 00:12:04.752000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s32, s18 + s27)
+W0409 00:12:05.048000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s51, s18 + s27)
+W0409 00:12:05.346000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s38, s18 + s27)
+W0409 00:12:05.645000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s55, s18 + s27)
+W0409 00:12:05.943000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s85, s18 + s27)
+W0409 00:12:06.257000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s26 + s27, s18 + s27)
+W0409 00:12:06.562000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s65, s18 + s27)
+W0409 00:12:06.866000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s28, s18 + s27)
+W0409 00:12:07.842000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s33, s18 + s27)
+W0409 00:12:08.142000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s20 + s27, s18 + s27)
+W0409 00:12:08.444000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s39, s18 + s27)
+W0409 00:12:08.744000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s67, s18 + s27)
+W0409 00:12:09.047000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s48, s18 + s27)
+W0409 00:12:09.354000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s35, s18 + s27)
+W0409 00:12:09.661000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s59, s18 + s27)
+W0409 00:12:09.971000 139991 .venv/lib/python3.10/site-packages/torch/fx/experimental/symbolic_shapes.py:6833] [0/5] _maybe_guard_rel() was called on non-relation expression Eq(s18 + s27, 1) | Eq(s27 + s42, s18 + s27)
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+/workspace/inference-opt/.venv/lib/python3.10/site-packages/torchao/dtypes/uintx/tensor_core_tiled_layout.py:241: UserWarning: Models quantized with version 1 of Int4WeightOnlyConfig is deprecated and will no longer be supported in a future release, please upgrade torchao and quantize again, or download a newer torchao checkpoint, see https://github.com/pytorch/ao/issues/2948 for more details
+  warnings.warn(
+W0409 00:12:49.474000 139991 .venv/lib/python3.10/site-packages/torch/_dynamo/convert_frame.py:1358] [0/8] torch._dynamo hit config.recompile_limit (8)
+W0409 00:12:49.474000 139991 .venv/lib/python3.10/site-packages/torch/_dynamo/convert_frame.py:1358] [0/8]    function: 'wrapper' (/workspace/inference-opt/.venv/lib/python3.10/site-packages/transformers/utils/generic.py:870)
+W0409 00:12:49.474000 139991 .venv/lib/python3.10/site-packages/torch/_dynamo/convert_frame.py:1358] [0/8]    last reason: 0/7: not kwargs['past_key_values'].layers                     # return [getattr(layer, "is_sliding", False) for layer in self.layers]  # transformers/cache_utils.py:1142 in is_sliding
+W0409 00:12:49.474000 139991 .venv/lib/python3.10/site-packages/torch/_dynamo/convert_frame.py:1358] [0/8] To log all recompilation reasons, use TORCH_LOGS="recompiles".
+W0409 00:12:49.474000 139991 .venv/lib/python3.10/site-packages/torch/_dynamo/convert_frame.py:1358] [0/8] To diagnose recompilation issues, see https://pytorch.org/docs/main/torch.compiler_troubleshooting.html
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Setting `pad_token_id` to `eos_token_id`:128001 for open-end generation.
+Quantizing...
+Done.
+Optimization took 53.0s
+Loading eval data...
+Measuring perplexity on 80 samples...
+Measuring generation speed...
+
+---
+efficiency_score: 2.3390
+quality_retained: 0.9021
+speedup:          1.1617
+memory_reduction: 2.2318
+perplexity:       11.5216
+baseline_ppl:     10.3939
+tokens_per_sec:   43.0
+baseline_tps:     37.0
+peak_vram_gb:     7.01
+baseline_vram_gb: 15.64
+opt_seconds:      53.0
